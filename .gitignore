@@ -13,7 +13,8 @@
 readme.local
 # testing
 /coverage
-
+/testpath
+/appdata
 # next.js
 /.next/
 /out/

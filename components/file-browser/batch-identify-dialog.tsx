@@ -39,6 +39,11 @@ import {
 } from "@/components/ui/tooltip";
 import Image from "next/image";
 import { sanitizeFileName } from "@/lib/filename-parser";
+import {
+  normalizeForComparison,
+  findAutoMatch,
+  getDisplayName,
+} from "@/lib/matching-utils";
 import type {
   TVDBSearchResult,
   ParsedFileName,
@@ -118,12 +123,6 @@ export function BatchIdentifyDialog({
 
   // Expanded filename (for mobile click to expand)
   const [expandedFileName, setExpandedFileName] = useState<number | null>(null);
-
-  // Get the display name for a TVDB result
-  const getDisplayName = (result: TVDBSearchResult | null): string => {
-    if (!result) return "";
-    return result.name_translated || result.name;
-  };
 
   // Scan files when dialog opens
   useEffect(() => {
@@ -241,98 +240,6 @@ export function BatchIdentifyDialog({
     }
   };
 
-  // Helper to normalize strings for comparison (lowercase, remove extra spaces/punctuation)
-  const normalizeForComparison = (str: string): string => {
-    return str
-      .toLowerCase()
-      .replace(/[^\w\s]/g, "") // Remove punctuation
-      .replace(/\s+/g, " ") // Normalize spaces
-      .trim();
-  };
-
-  // Calculate similarity between two strings (0-1 score)
-  const calculateSimilarity = (str1: string, str2: string): number => {
-    if (!str1 || !str2) return 0;
-    if (str1 === str2) return 1;
-
-    const words1 = str1.split(" ").filter(w => w.length >= 2);
-    const words2 = str2.split(" ").filter(w => w.length >= 2);
-
-    if (words1.length === 0 || words2.length === 0) return 0;
-
-    // Check if one string fully contains the other (all significant words match)
-    // This handles cases like "Anna Dei Miracoli The Miracle Worker" containing "The Miracle Worker"
-    const shorterWords = words1.length <= words2.length ? words1 : words2;
-    const longerWords = words1.length > words2.length ? words1 : words2;
-
-    let containedMatches = 0;
-    for (const shortWord of shorterWords) {
-      for (const longWord of longerWords) {
-        if (shortWord === longWord || shortWord.includes(longWord) || longWord.includes(shortWord)) {
-          containedMatches++;
-          break;
-        }
-      }
-    }
-
-    // If ALL words from shorter string are found in longer string, high score
-    if (containedMatches === shorterWords.length) {
-      // Score based on how much of the longer string is covered
-      // Full containment = 0.95, partial = proportional
-      return 0.95;
-    }
-
-    // Fallback: proportion of matching words from shorter string
-    return containedMatches / shorterWords.length;
-  };
-
-  // Check if a result matches the parsed filename
-  const findAutoMatch = (
-    results: TVDBSearchResult[],
-    parsedFile: ParsedFileName
-  ): TVDBSearchResult | null => {
-    const normalizedQuery = normalizeForComparison(parsedFile.cleanName);
-    const fileYear = parsedFile.year?.toString();
-
-    let bestMatch: TVDBSearchResult | null = null;
-    let bestScore = 0;
-
-    for (const result of results) {
-      const resultName = normalizeForComparison(result.name);
-      const resultNameTranslated = result.name_translated
-        ? normalizeForComparison(result.name_translated)
-        : null;
-      const resultNameEnglish = result.name_english
-        ? normalizeForComparison(result.name_english)
-        : null;
-
-      // Calculate similarity scores against all available names
-      const originalScore = calculateSimilarity(normalizedQuery, resultName);
-      const translatedScore = resultNameTranslated
-        ? calculateSimilarity(normalizedQuery, resultNameTranslated)
-        : 0;
-      const englishScore = resultNameEnglish
-        ? calculateSimilarity(normalizedQuery, resultNameEnglish)
-        : 0;
-
-      const nameScore = Math.max(originalScore, translatedScore, englishScore);
-
-      // If year matches, boost the score
-      const yearMatches = fileYear && result.year && result.year === fileYear;
-      const finalScore = yearMatches ? nameScore + 0.3 : nameScore;
-
-      // Require at least 60% word match (or 90% if no year)
-      const threshold = yearMatches ? 0.6 : 0.9;
-
-      if (finalScore > bestScore && nameScore >= threshold) {
-        bestScore = finalScore;
-        bestMatch = result;
-      }
-    }
-
-    return bestMatch;
-  };
-
   const performSearch = async (fileIndex: number, query: string) => {
     if (!query.trim()) return;
 
@@ -359,26 +266,7 @@ export function BatchIdentifyDialog({
         // Get the current file info to check for auto-match
         setFileIdentifications((prev) => {
           const currentFile = prev[fileIndex];
-
-          // Debug logging
-          const normalizedQuery = normalizeForComparison(currentFile.file.parsed.cleanName);
-          const fileYear = currentFile.file.parsed.year?.toString();
-          console.log("=== AUTO-MATCH DEBUG ===");
-          console.log("Parsed cleanName:", currentFile.file.parsed.cleanName);
-          console.log("Normalized query:", normalizedQuery);
-          console.log("File year:", fileYear);
-          console.log("TVDB Results:");
-          results.slice(0, 5).forEach((r, i) => {
-            console.log(`  [${i}] name: "${r.name}" -> normalized: "${normalizeForComparison(r.name)}"`);
-            if (r.name_translated) {
-              console.log(`      name_translated: "${r.name_translated}" -> normalized: "${normalizeForComparison(r.name_translated)}"`);
-            }
-            console.log(`      year: "${r.year}"`);
-            console.log(`      Match: name=${normalizeForComparison(r.name) === normalizedQuery}, year=${r.year === fileYear}`);
-          });
-
           const autoMatch = findAutoMatch(results, currentFile.file.parsed);
-          console.log("Auto-match result:", autoMatch ? `Found: ${autoMatch.name}` : "No match");
 
           return prev.map((fi, i) => {
             if (i !== fileIndex) return fi;
@@ -746,7 +634,7 @@ export function BatchIdentifyDialog({
                         <button
                           type="button"
                           onClick={() => toggleExpanded(index)}
-                          className="shrink-0 p-1"
+                          className="shrink-0 p-1 cursor-pointer"
                         >
                           {fi.isExpanded ? (
                             <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />

@@ -158,6 +158,11 @@ export function parseFileName(filename: string): ParsedFileName {
   // Work with a copy for parsing
   let workingName = nameWithoutExt;
 
+  // Split CamelCase words (e.g., "KimetsuNoYaiba" -> "Kimetsu No Yaiba")
+  // This handles anime titles that are written without separators
+  // Only split where a lowercase letter is immediately followed by an uppercase letter
+  workingName = workingName.replace(/([a-z])([A-Z])/g, "$1 $2");
+
   // Remove all bracketed content early (like [Erai-raws], [720p], [SubGroup], etc.)
   // This must happen before season/episode extraction to avoid parsing issues
   workingName = workingName.replace(/\[.*?\]/g, " ");
@@ -166,27 +171,29 @@ export function parseFileName(filename: string): ParsedFileName {
   workingName = workingName.replace(/\s+by\s+[\w\-]+$/i, " ");
 
   // Extract quality - find the first one for the quality field
+  // Patterns must be standalone (at start/end or surrounded by separators)
   let quality: string | undefined;
   for (const q of QUALITY_PATTERNS) {
-    const qRegex = new RegExp(`[.\\s_\\-\\[\\(]?(${q})[.\\s_\\-\\]\\)]?`, "i");
+    // Match only if preceded by separator/start AND followed by separator/end
+    const qRegex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])(${q})(?:[.\\s_\\-\\]\\)]|$)`, "i");
     const match = workingName.match(qRegex);
     if (match && !quality) {
       quality = match[1].toLowerCase();
     }
   }
 
-  // Remove ALL quality patterns from name
+  // Remove ALL quality patterns from name (only standalone occurrences)
   for (const q of QUALITY_PATTERNS) {
-    const qRegex = new RegExp(`[.\\s_\\-\\[\\(]?(${q})[.\\s_\\-\\]\\)]?`, "gi");
+    const qRegex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])(${q})(?:[.\\s_\\-\\]\\)]|$)`, "gi");
     workingName = workingName.replace(qRegex, " ");
   }
 
   // Remove release group at end
   workingName = workingName.replace(GROUP_PATTERN, "");
 
-  // Remove common release patterns
+  // Remove common release patterns (only standalone occurrences)
   for (const pattern of RELEASE_PATTERNS) {
-    const regex = new RegExp(`[.\\s_\\-\\[\\(]?${pattern}[.\\s_\\-\\]\\)]?`, "gi");
+    const regex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])${pattern}(?:[.\\s_\\-\\]\\)]|$)`, "gi");
     workingName = workingName.replace(regex, " ");
   }
 

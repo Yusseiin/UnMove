@@ -14,6 +14,7 @@ import { useFileBrowser } from "@/hooks/use-file-browser";
 import { useConfig } from "@/hooks/use-config";
 import { CreateFolderDialog } from "./create-folder-dialog";
 import { DeleteConfirmDialog } from "./delete-confirm-dialog";
+import { RenameDialog } from "./rename-dialog";
 import { DestinationPicker } from "./destination-picker";
 import { TransferConfirmDialog } from "./transfer-confirm-dialog";
 import { OverwriteConfirmDialog } from "./overwrite-confirm-dialog";
@@ -54,6 +55,15 @@ export function FileBrowser() {
   const [identifyFilePath, setIdentifyFilePath] = useState("");
   const [identifyFilePaths, setIdentifyFilePaths] = useState<string[]>([]);
   const [identifyOperation, setIdentifyOperation] = useState<"copy" | "move">("move");
+
+  // Rename dialog state
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renamePane, setRenamePane] = useState<PaneType>("downloads");
+  const [renamePath, setRenamePath] = useState("");
+  const [renameCurrentName, setRenameCurrentName] = useState("");
+
+  // Mobile view state - which pane to show
+  const [mobileActivePane, setMobileActivePane] = useState<PaneType>("downloads");
 
   // Loading states
   const [isOperationLoading, setIsOperationLoading] = useState(false);
@@ -310,6 +320,51 @@ export function FileBrowser() {
     setCreateFolderOpen(true);
   }, []);
 
+  // Handle rename
+  const handleRename = useCallback((pane: PaneType, path: string, currentName: string) => {
+    setRenamePane(pane);
+    setRenamePath(path);
+    setRenameCurrentName(currentName);
+    setRenameDialogOpen(true);
+  }, []);
+
+  // Confirm rename
+  const handleConfirmRename = useCallback(async (newName: string) => {
+    setIsOperationLoading(true);
+
+    try {
+      const response = await fetch("/api/files/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pane: renamePane,
+          oldPath: renamePath,
+          newName,
+        }),
+      });
+
+      const data: OperationResponse = await response.json();
+
+      if (data.success) {
+        toast.success(data.message);
+        setRenameDialogOpen(false);
+        if (renamePane === "downloads") {
+          downloadsPaneRef.current?.clearSelection();
+          downloadsPaneRef.current?.refresh();
+        } else {
+          mediaPaneRef.current?.clearSelection();
+          mediaPaneRef.current?.refresh();
+        }
+      } else {
+        toast.error(data.error || "Rename failed");
+      }
+    } catch {
+      toast.error("Failed to rename");
+    } finally {
+      setIsOperationLoading(false);
+    }
+  }, [renamePane, renamePath]);
+
   // Confirm create folder
   const handleConfirmCreateFolder = useCallback(async (name: string) => {
     setIsOperationLoading(true);
@@ -365,15 +420,52 @@ export function FileBrowser() {
       </div>
 
       {isMobile ? (
-        // Mobile: Only show downloads pane
-        <div className="flex-1 overflow-hidden">
-          <FilePane
-            pane="downloads"
-            onCopy={handleCopy}
-            onMove={handleMove}
-            onDelete={handleDelete}
-            paneRef={setDownloadsPaneRef}
-          />
+        // Mobile: Show toggle and selected pane
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Mobile pane toggle */}
+          <div className="flex border-b bg-muted/30">
+            <button
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                mobileActivePane === "downloads"
+                  ? "bg-background border-b-2 border-primary text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setMobileActivePane("downloads")}
+            >
+              Downloads
+            </button>
+            <button
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                mobileActivePane === "media"
+                  ? "bg-background border-b-2 border-primary text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => setMobileActivePane("media")}
+            >
+              Media
+            </button>
+          </div>
+          {/* Active pane content */}
+          <div className="flex-1 overflow-hidden">
+            {mobileActivePane === "downloads" ? (
+              <FilePane
+                pane="downloads"
+                onCopy={handleCopy}
+                onMove={handleMove}
+                onDelete={handleDelete}
+                onRename={handleRename}
+                paneRef={setDownloadsPaneRef}
+              />
+            ) : (
+              <FilePane
+                pane="media"
+                onDelete={handleDelete}
+                onRename={handleRename}
+                onCreateFolder={handleCreateFolder}
+                paneRef={setMediaPaneRef}
+              />
+            )}
+          </div>
         </div>
       ) : (
         // Desktop: Show both panes with resizable split
@@ -389,6 +481,7 @@ export function FileBrowser() {
                   onCopy={handleCopy}
                   onMove={handleMove}
                   onDelete={handleDelete}
+                  onRename={handleRename}
                   paneRef={setDownloadsPaneRef}
                 />
               </div>
@@ -404,6 +497,7 @@ export function FileBrowser() {
                 <FilePane
                   pane="media"
                   onDelete={handleDelete}
+                  onRename={handleRename}
                   onCreateFolder={handleCreateFolder}
                   paneRef={setMediaPaneRef}
                 />
@@ -436,6 +530,14 @@ export function FileBrowser() {
         onOpenChange={setDeleteConfirmOpen}
         itemCount={deletePaths.length}
         onConfirm={handleConfirmDelete}
+        isLoading={isOperationLoading}
+      />
+
+      <RenameDialog
+        open={renameDialogOpen}
+        onOpenChange={setRenameDialogOpen}
+        currentName={renameCurrentName}
+        onSubmit={handleConfirmRename}
         isLoading={isOperationLoading}
       />
 
@@ -519,6 +621,7 @@ interface FilePaneProps {
   onCopy?: (paths: string[], entries: FileEntry[]) => void;
   onMove?: (paths: string[], entries: FileEntry[]) => void;
   onDelete: (pane: PaneType, paths: string[]) => void;
+  onRename: (pane: PaneType, path: string, currentName: string) => void;
   onCreateFolder?: (path: string) => void;
   paneRef: (ref: PaneRef | null) => void;
 }
@@ -528,6 +631,7 @@ const FilePane = memo(function FilePane({
   onCopy,
   onMove,
   onDelete,
+  onRename,
   onCreateFolder,
   paneRef,
 }: FilePaneProps) {
@@ -555,6 +659,17 @@ const FilePane = memo(function FilePane({
     }
   }, [selectedPaths.size, entries.length, clearSelection, selectAll]);
 
+  // Get the selected entry for rename (only when exactly 1 selected)
+  const selectedEntry = selectedPaths.size === 1
+    ? entries.find(e => e.path === Array.from(selectedPaths)[0])
+    : null;
+
+  const handleRenameClick = useCallback(() => {
+    if (selectedEntry) {
+      onRename(pane, selectedEntry.path, selectedEntry.name);
+    }
+  }, [selectedEntry, onRename, pane]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Toolbar */}
@@ -562,14 +677,14 @@ const FilePane = memo(function FilePane({
         {pane === "downloads" && (
           <>
             <button
-              className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
               disabled={selectedPaths.size === 0 || isLoading}
               onClick={() => onCopy?.(Array.from(selectedPaths), entries)}
             >
               Copy
             </button>
             <button
-              className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
               disabled={selectedPaths.size === 0 || isLoading}
               onClick={() => onMove?.(Array.from(selectedPaths), entries)}
             >
@@ -579,7 +694,7 @@ const FilePane = memo(function FilePane({
         )}
         {pane === "media" && (
           <button
-            className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
             disabled={isLoading}
             onClick={() => onCreateFolder?.(currentPath)}
           >
@@ -587,7 +702,15 @@ const FilePane = memo(function FilePane({
           </button>
         )}
         <button
-          className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
+          disabled={selectedPaths.size !== 1 || isLoading}
+          onClick={handleRenameClick}
+          title={selectedPaths.size !== 1 ? "Select exactly one item to rename" : "Rename"}
+        >
+          Rename
+        </button>
+        <button
+          className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
           disabled={selectedPaths.size === 0 || isLoading}
           onClick={() => onDelete(pane, Array.from(selectedPaths))}
         >
@@ -595,7 +718,7 @@ const FilePane = memo(function FilePane({
         </button>
         <div className="flex-1 min-w-2" />
         <button
-          className="inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 shrink-0"
+          className="inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 shrink-0 cursor-pointer"
           disabled={isLoading}
           onClick={refresh}
         >
@@ -626,7 +749,7 @@ const FilePane = memo(function FilePane({
         <div className="flex items-center gap-1 overflow-x-auto">
           <button
             onClick={() => navigate("/")}
-            className="hover:text-primary transition-colors shrink-0"
+            className="hover:text-primary transition-colors shrink-0 cursor-pointer"
           >
             {pane === "downloads" ? "Downloads" : "Media"}
           </button>
@@ -641,7 +764,7 @@ const FilePane = memo(function FilePane({
                     onClick={() =>
                       navigate("/" + arr.slice(0, index + 1).join("/"))
                     }
-                    className="hover:text-primary transition-colors max-w-30 sm:max-w-none truncate"
+                    className="hover:text-primary transition-colors max-w-30 sm:max-w-none truncate cursor-pointer"
                   >
                     {segment}
                   </button>
