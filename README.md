@@ -1,36 +1,160 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Unmove
 
-## Getting Started
+A self-hosted web application to organize your media library by identifying files using TVDB (The TV Database) and moving them with proper naming conventions.
 
-First, run the development server:
+![License](https://img.shields.io/github/license/yusseiin/unmove)
+![Docker Pulls](https://img.shields.io/docker/pulls/yusseiin/unmove)
+
+## Features
+
+- **File Browser** - Browse your downloads folder with parsed information (title, year, season, episode)
+- **TVDB Integration** - Search and identify movies/TV shows using the TVDB API
+- **Auto-Match** - Automatically matches files to TVDB results based on filename similarity
+- **Batch Processing** - Identify and move multiple files at once
+- **Smart Renaming** - Automatically renames files following media server conventions (Plex/Jellyfin/Emby compatible)
+- **Configurable Paths** - Set custom download and media library paths
+
+## Screenshots
+
+*Coming soon*
+
+## Installation
+
+### Docker (Recommended)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker run -d \
+  --name unmove \
+  -p 3000:3000 \
+  -e PUID=99 \
+  -e PGID=100 \
+  -v /path/to/downloads:/downloads \
+  -v /path/to/media:/media \
+  -v /path/to/config:/config \
+  yusseiin/unmove:latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Docker Compose
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```yaml
+version: "3.8"
+services:
+  unmove:
+    image: yusseiin/unmove:latest
+    container_name: unmove
+    ports:
+      - "3000:3000"
+    environment:
+      - PUID=99
+      - PGID=100
+    volumes:
+      - /path/to/downloads:/downloads
+      - /path/to/media:/media
+      - /path/to/config:/config
+    restart: unless-stopped
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Unraid
 
-## Learn More
+Available in Community Applications. Search for "unmove" or install manually using the Docker Hub image `yusseiin/unmove:latest`.
 
-To learn more about Next.js, take a look at the following resources:
+## Configuration
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Environment Variables
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUID` | 99 | User ID for file permissions |
+| `PGID` | 100 | Group ID for file permissions |
 
-## Deploy on Vercel
+### Volumes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Container Path | Description |
+|----------------|-------------|
+| `/downloads` | Your downloads folder (source) |
+| `/media` | Your media library (destination) |
+| `/config` | Configuration storage |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### TVDB API Key
+
+1. Create a free account at [thetvdb.com](https://thetvdb.com)
+2. Go to [API Information](https://thetvdb.com/api-information) and generate an API key
+3. Enter your API key in the app settings (gear icon)
+
+## Usage
+
+1. Open the web interface at `http://your-server:3000`
+2. Click the gear icon and enter your TVDB API key
+3. Browse your downloads folder
+4. Select files to identify
+5. Use "Identify" for single files or "Batch Identify" for multiple files
+6. Review the matches and move files to your media library
+
+## Development
+
+### Prerequisites
+
+- Node.js 22+
+- pnpm
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/yusseiin/unmove.git
+cd unmove
+
+# Install dependencies
+pnpm install
+
+# Set environment variables
+cp .env.example .env.local
+# Edit .env.local with your paths
+
+# Run development server
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to view the app.
+
+### Building
+
+```bash
+# Build for production
+pnpm build
+
+# Start production server
+pnpm start
+```
+
+### Docker Build
+
+```bash
+docker build --build-arg NEXT_PUBLIC_VERSION=0.0.1 -t unmove .
+```
+
+## Tech Stack
+
+- [Next.js 15](https://nextjs.org/) - React framework
+- [React 19](https://react.dev/) - UI library
+- [Tailwind CSS](https://tailwindcss.com/) - Styling
+- [shadcn/ui](https://ui.shadcn.com/) - UI components
+- [TVDB API](https://thetvdb.com/api-information) - Media database
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/yusseiin/unmove/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yusseiin/unmove/discussions)
+
+## Acknowledgments
+
+- [TVDB](https://thetvdb.com/) for providing the media database API
+- [Unraid](https://unraid.net/) community for testing and feedback
