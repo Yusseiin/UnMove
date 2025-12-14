@@ -35,7 +35,7 @@ export function FileToolbar({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center gap-1 p-2 border-b">
+      <div className="flex items-center gap-2 sm:gap-1 p-2 px-3 sm:px-2 border-b">
         {pane === "downloads" && (
           <>
             <Tooltip>
@@ -45,8 +45,9 @@ export function FileToolbar({
                   size="sm"
                   disabled={!hasSelection || isLoading}
                   onClick={onCopy}
+                  className="h-10 px-3 sm:h-8 sm:px-2"
                 >
-                  <Copy className="h-4 w-4" />
+                  <Copy className="h-5 w-5 sm:h-4 sm:w-4" />
                   <span className="ml-1 hidden sm:inline">Copy</span>
                 </Button>
               </TooltipTrigger>
@@ -59,8 +60,9 @@ export function FileToolbar({
                   size="sm"
                   disabled={!hasSelection || isLoading}
                   onClick={onMove}
+                  className="h-10 px-3 sm:h-8 sm:px-2"
                 >
-                  <Scissors className="h-4 w-4" />
+                  <Scissors className="h-5 w-5 sm:h-4 sm:w-4" />
                   <span className="ml-1 hidden sm:inline">Move</span>
                 </Button>
               </TooltipTrigger>
@@ -76,8 +78,9 @@ export function FileToolbar({
                 size="sm"
                 disabled={isLoading}
                 onClick={onCreateFolder}
+                className="h-10 px-3 sm:h-8 sm:px-2"
               >
-                <FolderPlus className="h-4 w-4" />
+                <FolderPlus className="h-5 w-5 sm:h-4 sm:w-4" />
                 <span className="ml-1 hidden sm:inline">New Folder</span>
               </Button>
             </TooltipTrigger>
@@ -91,8 +94,9 @@ export function FileToolbar({
               size="sm"
               disabled={!hasSelection || isLoading}
               onClick={onDelete}
+              className="h-10 px-3 sm:h-8 sm:px-2"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-5 w-5 sm:h-4 sm:w-4" />
               <span className="ml-1 hidden sm:inline">Delete</span>
             </Button>
           </TooltipTrigger>
@@ -106,14 +110,15 @@ export function FileToolbar({
               size="icon"
               disabled={isLoading}
               onClick={onRefresh}
+              className="h-10 w-10 sm:h-8 sm:w-8"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-5 w-5 sm:h-4 sm:w-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Refresh</TooltipContent>
         </Tooltip>
         {hasSelection && (
-          <span className="text-xs text-muted-foreground ml-2">
+          <span className="text-sm sm:text-xs text-muted-foreground ml-2">
             {selectedCount} selected
           </span>
         )}

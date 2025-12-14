@@ -12,6 +12,7 @@ export interface AppConfig {
   seriesBaseFolders: string[]; // Base folders for TV series (e.g., ["TV Series", "Anime"])
   moviesBaseFolders: string[]; // Base folders for movies (e.g., ["Movies", "Documentaries"])
   movieFolderStructure: MovieFolderStructure; // How to organize movie files
+  preserveQualityInfo: boolean; // Keep quality/encoding info in renamed files (e.g., "1080p.H264")
 }
 
 export const defaultConfig: AppConfig = {
@@ -19,6 +20,7 @@ export const defaultConfig: AppConfig = {
   seriesBaseFolders: [],
   moviesBaseFolders: [],
   movieFolderStructure: "name", // Default: Movie Name folder
+  preserveQualityInfo: false, // Default: don't preserve quality info
 };
 
 // Localized strings

@@ -76,6 +76,7 @@ interface IdentifyDialogProps {
   seriesBaseFolders?: string[];
   moviesBaseFolders?: string[];
   movieFolderStructure?: MovieFolderStructure; // "year" = Year/Movie, "name" = Movie Name/Movie
+  preserveQualityInfo?: boolean; // Keep quality/encoding info in renamed files
 }
 
 export function IdentifyDialog({
@@ -91,6 +92,7 @@ export function IdentifyDialog({
   seriesBaseFolders = [],
   moviesBaseFolders = [],
   movieFolderStructure = "name",
+  preserveQualityInfo = false,
 }: IdentifyDialogProps) {
   const isMobile = useIsMobile();
   // Get localized strings based on language
@@ -136,6 +138,12 @@ export function IdentifyDialog({
 
   // Expanded filename tooltip (for mobile click)
   const [expandedFileName, setExpandedFileName] = useState<number | null>(null);
+
+  // Expanded destination path (for mobile click)
+  const [expandedDestPath, setExpandedDestPath] = useState<number | null>(null);
+
+  // Expanded movie path (for mobile click)
+  const [expandedMoviePath, setExpandedMoviePath] = useState(false);
 
   // Selected base folder for series/movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
@@ -376,7 +384,10 @@ export function IdentifyDialog({
     const movieName = sanitizeFileName(getDisplayName(selectedResult));
     const year = selectedResult.year || "";
     const ext = file.parsed.extension || "mkv";
-    const movieFileName = `${movieName}${year ? ` (${year})` : ""}.${ext}`;
+
+    // Build filename with optional quality info
+    const qualitySuffix = preserveQualityInfo && file.parsed.qualityInfo ? ` [${file.parsed.qualityInfo}]` : "";
+    const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
     // Prepend selected base folder if configured
     const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
@@ -437,13 +448,20 @@ export function IdentifyDialog({
       // Generate new path - use display name helper for episode title
       const seasonFolder = season === 0 ? strings.specials : `${strings.season} ${formatSeason(season)}`;
       const episodeTitle = getEpisodeDisplayName(matchedEpisode);
-      const newFileName = generateEpisodeFileName(
+      const baseFileName = generateEpisodeFileName(
         seriesName,
         season,
         epNum,
         episodeTitle,
         file.parsed.extension || "mkv"
       );
+
+      // Add quality suffix if enabled
+      const qualitySuffix = preserveQualityInfo && file.parsed.qualityInfo ? ` [${file.parsed.qualityInfo}]` : "";
+      const ext = file.parsed.extension || "mkv";
+      const newFileName = qualitySuffix
+        ? baseFileName.replace(`.${ext}`, `${qualitySuffix}.${ext}`)
+        : baseFileName;
 
       // Prepend selected base folder if configured
       const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
@@ -561,13 +579,20 @@ export function IdentifyDialog({
     const seriesFolder = `${seriesName}${seriesYear ? ` (${seriesYear})` : ""}`;
     const seasonFolder = editingSeason === 0 ? strings.specials : `${strings.season} ${formatSeason(editingSeason)}`;
     const episodeTitle = getEpisodeDisplayName(matchedEpisode);
-    const newFileName = generateEpisodeFileName(
+    const baseFileName = generateEpisodeFileName(
       seriesName,
       editingSeason,
       editingEpisode,
       episodeTitle,
       file.parsed.extension || "mkv"
     );
+
+    // Add quality suffix if enabled
+    const qualitySuffix = preserveQualityInfo && file.parsed.qualityInfo ? ` [${file.parsed.qualityInfo}]` : "";
+    const ext = file.parsed.extension || "mkv";
+    const newFileName = qualitySuffix
+      ? baseFileName.replace(`.${ext}`, `${qualitySuffix}.${ext}`)
+      : baseFileName;
 
     // Prepend selected base folder if configured
     const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
@@ -1046,9 +1071,26 @@ export function IdentifyDialog({
                                         <p className="text-xs text-amber-600 dark:text-amber-400 truncate">{m.error}</p>
                                       ) : isValid && m.episode ? (
                                         <>
-                                          <p className="text-xs text-green-600 dark:text-green-400 truncate">
-                                            → S{formatSeason(m.episode.seasonNumber ?? 0)}E{formatSeason(m.episode.number ?? 0)} - {getEpisodeDisplayName(m.episode)}
-                                          </p>
+                                          {isMobile ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => setExpandedDestPath(expandedDestPath === fileIndex ? null : fileIndex)}
+                                              className={`text-xs text-green-600 dark:text-green-400 text-left w-full ${expandedDestPath === fileIndex ? "whitespace-normal break-all" : "truncate"}`}
+                                            >
+                                              → S{formatSeason(m.episode.seasonNumber ?? 0)}E{formatSeason(m.episode.number ?? 0)} - {getEpisodeDisplayName(m.episode)}
+                                            </button>
+                                          ) : (
+                                            <Tooltip delayDuration={0}>
+                                              <TooltipTrigger asChild>
+                                                <p className="text-xs text-green-600 dark:text-green-400 truncate cursor-default">
+                                                  → S{formatSeason(m.episode.seasonNumber ?? 0)}E{formatSeason(m.episode.number ?? 0)} - {getEpisodeDisplayName(m.episode)}
+                                                </p>
+                                              </TooltipTrigger>
+                                              <TooltipContent side="top" className="max-w-[400px] break-all">
+                                                {m.newPath}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          )}
                                           {existsAtDest && (
                                             <div className="flex items-center gap-2 mt-1">
                                               <span className="text-xs text-amber-600 dark:text-amber-400">
@@ -1195,10 +1237,28 @@ export function IdentifyDialog({
             <div className="space-y-2">
               <label className="text-sm font-medium">Renamed File</label>
               <div className="border rounded-md p-3">
-                <div className="flex items-center gap-2 text-sm font-mono">
-                  <File className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="truncate">{validMappings[0]?.newPath}</span>
-                </div>
+                {isMobile ? (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedMoviePath(!expandedMoviePath)}
+                    className={`flex items-start gap-2 text-sm font-mono text-left w-full ${expandedMoviePath ? "" : ""}`}
+                  >
+                    <File className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <span className={expandedMoviePath ? "whitespace-normal break-all" : "truncate"}>{validMappings[0]?.newPath}</span>
+                  </button>
+                ) : (
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-2 text-sm font-mono cursor-default">
+                        <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="truncate">{validMappings[0]?.newPath}</span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[400px] break-all">
+                      {validMappings[0]?.newPath}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <p className="text-xs text-muted-foreground mt-2">
                   Will be placed in the current Media folder
                 </p>

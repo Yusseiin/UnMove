@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { Language, MovieFolderStructure } from "@/types/config";
 
 interface SettingsDialogProps {
@@ -33,6 +34,8 @@ interface SettingsDialogProps {
   onMoviesBaseFoldersChange: (folders: string[]) => void;
   movieFolderStructure: MovieFolderStructure;
   onMovieFolderStructureChange: (structure: MovieFolderStructure) => void;
+  preserveQualityInfo: boolean;
+  onPreserveQualityInfoChange: (preserve: boolean) => void;
   isLoading?: boolean;
 }
 
@@ -47,6 +50,8 @@ export function SettingsDialog({
   onMoviesBaseFoldersChange,
   movieFolderStructure,
   onMovieFolderStructureChange,
+  preserveQualityInfo,
+  onPreserveQualityInfoChange,
   isLoading,
 }: SettingsDialogProps) {
   const [newSeriesFolder, setNewSeriesFolder] = useState("");
@@ -273,6 +278,26 @@ export function SettingsDialog({
                 </SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Preserve quality info */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="preserve-quality"
+                checked={preserveQualityInfo}
+                onCheckedChange={(checked) => onPreserveQualityInfoChange(checked === true)}
+                disabled={isLoading}
+              />
+              <Label htmlFor="preserve-quality" className="cursor-pointer">
+                {language === "it" ? "Mantieni info qualità" : "Preserve Quality Info"}
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground pl-7">
+              {language === "it"
+                ? "Mantiene qualità e codec nel nome del file (es. 1080p.H264)"
+                : "Keep quality and codec in filename (e.g. 1080p.H264)"}
+            </p>
           </div>
         </div>
 

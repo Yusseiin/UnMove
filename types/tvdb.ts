@@ -94,6 +94,7 @@ export interface ParsedFileName {
   episode?: number;
   year?: number;
   quality?: string;
+  qualityInfo?: string; // Full quality/codec string to preserve (e.g., "1080p.H264")
   extension: string;
   isLikelyMovie: boolean;
 }

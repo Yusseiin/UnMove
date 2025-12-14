@@ -144,6 +144,41 @@ const RELEASE_PATTERNS = [
 // Common scene group patterns (at end of filename)
 const GROUP_PATTERN = /-[a-z0-9]+$/i;
 
+// Patterns to preserve in quality info string (resolution + codec)
+const PRESERVE_QUALITY_PATTERNS = [
+  // Resolution
+  "2160p",
+  "4k",
+  "uhd",
+  "1080p",
+  "1080i",
+  "720p",
+  "576p",
+  "480p",
+  "fullhd",
+  "full-hd",
+  // Video codecs
+  "x264",
+  "x265",
+  "h264",
+  "h265",
+  "h\\.264",
+  "h\\.265",
+  "hevc",
+  "avc",
+  "xvid",
+  "divx",
+  // HDR
+  "hdr",
+  "hdr10",
+  "hdr10\\+",
+  "dolby vision",
+  "dv",
+  "sdr",
+  "10bit",
+  "8bit",
+];
+
 /**
  * Parse a media filename to extract show/movie info
  */
@@ -181,6 +216,24 @@ export function parseFileName(filename: string): ParsedFileName {
       quality = match[1].toLowerCase();
     }
   }
+
+  // Extract quality info string to preserve (resolution + codec)
+  // This captures patterns like "1080p.H264" or "FullHD 1080p H264"
+  const qualityInfoParts: string[] = [];
+  for (const q of PRESERVE_QUALITY_PATTERNS) {
+    const qRegex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])(${q})(?:[.\\s_\\-\\]\\)]|$)`, "i");
+    const match = workingName.match(qRegex);
+    if (match) {
+      // Normalize the match (keep original case but fix common variations)
+      let normalized = match[1];
+      // Normalize H.264/H.265 to H264/H265
+      normalized = normalized.replace(/h\.(\d{3})/gi, "H$1");
+      // Normalize FullHD to 1080p (but keep FullHD if also found)
+      qualityInfoParts.push(normalized);
+    }
+  }
+  // Build quality info string, joining with dots
+  const qualityInfo = qualityInfoParts.length > 0 ? qualityInfoParts.join(".") : undefined;
 
   // Remove ALL quality patterns from name (only standalone occurrences)
   for (const q of QUALITY_PATTERNS) {
@@ -316,6 +369,7 @@ export function parseFileName(filename: string): ParsedFileName {
     episode,
     year,
     quality,
+    qualityInfo,
     extension,
     isLikelyMovie,
   };

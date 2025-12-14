@@ -11,7 +11,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { FileEntry, ListFilesResponse } from "@/types/files";
 
@@ -122,7 +121,7 @@ export function DestinationPicker({
           ))}
         </div>
 
-        <div className="border rounded-md flex-1 min-h-0 flex flex-col">
+        <div className="border rounded-md flex-1 min-h-0 flex flex-col overflow-hidden">
           {currentPath !== "/" && (
             <button
               onClick={handleNavigateUp}
@@ -132,7 +131,7 @@ export function DestinationPicker({
               <span className="text-xs sm:text-sm">Go back</span>
             </button>
           )}
-          <ScrollArea className="h-40 sm:h-[200px] flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             {isFetching ? (
               <div className="p-2 space-y-2">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -165,7 +164,7 @@ export function DestinationPicker({
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </div>
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0 pt-2">

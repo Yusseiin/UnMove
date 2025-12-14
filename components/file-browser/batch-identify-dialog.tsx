@@ -83,6 +83,7 @@ interface BatchIdentifyDialogProps {
   language?: Language;
   moviesBaseFolders?: string[];
   movieFolderStructure?: MovieFolderStructure;
+  preserveQualityInfo?: boolean;
 }
 
 export function BatchIdentifyDialog({
@@ -95,6 +96,7 @@ export function BatchIdentifyDialog({
   language = "en",
   moviesBaseFolders = [],
   movieFolderStructure = "name",
+  preserveQualityInfo = false,
 }: BatchIdentifyDialogProps) {
   const isMobile = useIsMobile();
 
@@ -123,6 +125,9 @@ export function BatchIdentifyDialog({
 
   // Expanded filename (for mobile click to expand)
   const [expandedFileName, setExpandedFileName] = useState<number | null>(null);
+
+  // Expanded destination path (for mobile click to expand)
+  const [expandedDestPath, setExpandedDestPath] = useState<number | null>(null);
 
   // Scan files when dialog opens
   useEffect(() => {
@@ -276,7 +281,8 @@ export function BatchIdentifyDialog({
               const movieName = sanitizeFileName(getDisplayName(autoMatch));
               const year = autoMatch.year || "";
               const ext = fi.file.parsed.extension || "mkv";
-              const movieFileName = `${movieName}${year ? ` (${year})` : ""}.${ext}`;
+              const qualitySuffix = preserveQualityInfo && fi.file.parsed.qualityInfo ? ` [${fi.file.parsed.qualityInfo}]` : "";
+              const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
               const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
 
@@ -340,7 +346,8 @@ export function BatchIdentifyDialog({
         const movieName = sanitizeFileName(getDisplayName(result));
         const year = result.year || "";
         const ext = fi.file.parsed.extension || "mkv";
-        const movieFileName = `${movieName}${year ? ` (${year})` : ""}.${ext}`;
+        const qualitySuffix = preserveQualityInfo && fi.file.parsed.qualityInfo ? ` [${fi.file.parsed.qualityInfo}]` : "";
+        const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
         const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
 
@@ -403,7 +410,8 @@ export function BatchIdentifyDialog({
         const movieName = sanitizeFileName(getDisplayName(fi.selectedResult));
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
-        const movieFileName = `${movieName}${year ? ` (${year})` : ""}.${ext}`;
+        const qualitySuffix = preserveQualityInfo && fi.file.parsed.qualityInfo ? ` [${fi.file.parsed.qualityInfo}]` : "";
+        const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
         const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
 
@@ -422,7 +430,7 @@ export function BatchIdentifyDialog({
         };
       })
     );
-  }, [selectedBaseFolder, movieFolderStructure]);
+  }, [selectedBaseFolder, movieFolderStructure, preserveQualityInfo]);
 
   const handleConfirm = useCallback(async () => {
     const validIdentifications = fileIdentifications.filter(
@@ -863,9 +871,26 @@ export function BatchIdentifyDialog({
 
                           {/* Preview path */}
                           {fi.newPath && (
-                            <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
-                              → {fi.newPath}
-                            </p>
+                            isMobile ? (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedDestPath(expandedDestPath === index ? null : index)}
+                                className={`text-[10px] sm:text-xs text-muted-foreground text-left w-full ${expandedDestPath === index ? "whitespace-normal break-all" : "truncate"}`}
+                              >
+                                → {fi.newPath}
+                              </button>
+                            ) : (
+                              <Tooltip delayDuration={0}>
+                                <TooltipTrigger asChild>
+                                  <p className="text-[10px] sm:text-xs text-muted-foreground truncate cursor-default">
+                                    → {fi.newPath}
+                                  </p>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[400px] break-all">
+                                  {fi.newPath}
+                                </TooltipContent>
+                              </Tooltip>
+                            )
                           )}
                         </div>
                       )}

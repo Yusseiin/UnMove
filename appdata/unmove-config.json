@@ -8,6 +8,7 @@
     "Film"
   ],
   "movieFolderStructure": "year",
+  "preserveQualityInfo": true,
   "seriesBaseFolder": "Series",
   "moviesBaseFolder": "Film"
 }

@@ -29,7 +29,7 @@ export function FileBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList>
+      <BreadcrumbList className="text-base sm:text-sm">
         <BreadcrumbItem>
           <BreadcrumbLink
             href="#"
@@ -39,14 +39,14 @@ export function FileBreadcrumb({
             }}
             className="flex items-center gap-1"
           >
-            <Home className="h-3 w-3" />
+            <Home className="h-4 w-4 sm:h-3 sm:w-3" />
             <span className="hidden sm:inline">{rootLabel}</span>
           </BreadcrumbLink>
         </BreadcrumbItem>
         {segments.map((segment, index) => (
           <Fragment key={index}>
             <BreadcrumbSeparator>
-              <ChevronRight className="h-3 w-3" />
+              <ChevronRight className="h-4 w-4 sm:h-3 sm:w-3" />
             </BreadcrumbSeparator>
             <BreadcrumbItem>
               <BreadcrumbLink

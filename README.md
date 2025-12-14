@@ -81,6 +81,47 @@ Available in Community Applications. Search for "unmove" or install manually usi
 2. Go to [API Information](https://thetvdb.com/api-information) and generate an API key
 3. Enter your API key in the env
 
+### Application Settings
+
+Settings are accessible via the gear icon in the top-right corner of the interface and are stored in `/config/unmove-config.json`.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Language** | `en` | Interface language and folder naming. Options: `en` (English), `it` (Italian). Affects season folder names (e.g., "Season 01" vs "Stagione 01") |
+| **Series Base Folders** | `[]` | List of subfolders in your media library for TV series (e.g., `["TV Series", "Anime", "Documentaries"]`). When identifying a series, you can choose which folder to place it in |
+| **Movies Base Folders** | `[]` | List of subfolders in your media library for movies (e.g., `["Movies", "4K Movies", "Documentaries"]`). When identifying a movie, you can choose which folder to place it in |
+| **Movie Folder Structure** | `name` | How movie files are organized. Options: `name` (Movie Name (Year)/Movie.mkv) or `year` (Year/Movie.mkv) |
+| **Preserve Quality Info** | `false` | When enabled, keeps quality and encoding information in renamed files. Example: `Avatar - The Way of Water (2022) [1080p.x265].mkv` instead of `Avatar - The Way of Water (2022).mkv` |
+
+#### Example unmove-config.json
+
+```json
+{
+  "language": "en",
+  "seriesBaseFolders": ["TV Series", "Anime"],
+  "moviesBaseFolders": ["Movies", "4K Movies"],
+  "movieFolderStructure": "name",
+  "preserveQualityInfo": true
+}
+```
+
+#### Naming Examples
+
+**TV Series** with `seriesBaseFolders: ["TV Series"]` and `preserveQualityInfo: true`:
+```
+/media/TV Series/Breaking Bad (2008)/Season 01/Breaking Bad - S01E01 - Pilot [1080p.x264].mkv
+```
+
+**Movies** with `moviesBaseFolders: ["Movies"]` and `movieFolderStructure: "name"`:
+```
+/media/Movies/Avatar - The Way of Water (2022)/Avatar - The Way of Water (2022) [2160p.x265].mkv
+```
+
+**Movies** with `moviesBaseFolders: ["4K Movies"]` and `movieFolderStructure: "year"`:
+```
+/media/4K Movies/2022/Avatar - The Way of Water (2022) [2160p.x265].mkv
+```
+
 ## Usage
 
 1. Open the web interface at `http://your-server:3000`

@@ -7,8 +7,6 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { Button } from "@/components/ui/button";
-import { Settings } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useFileBrowser } from "@/hooks/use-file-browser";
 import { useConfig } from "@/hooks/use-config";
@@ -30,12 +28,14 @@ interface PaneRef {
   currentPath: string;
 }
 
-export function FileBrowser() {
+interface FileBrowserProps {
+  settingsOpen: boolean;
+  onSettingsOpenChange: (open: boolean) => void;
+}
+
+export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserProps) {
   const isMobile = useIsMobile();
   const { config, setLanguage, updateConfig, isLoading: configLoading } = useConfig();
-
-  // Dialog states
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [createFolderPath, setCreateFolderPath] = useState("/");
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -406,19 +406,6 @@ export function FileBrowser() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Global header with settings */}
-      <div className="flex items-center justify-between px-3 py-2 border-b bg-background">
-        <h1 className="text-lg font-semibold">File Manager</h1>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setSettingsOpen(true)}
-          title="Settings"
-        >
-          <Settings className="h-5 w-5" />
-        </Button>
-      </div>
-
       {isMobile ? (
         // Mobile: Show toggle and selected pane
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -445,26 +432,25 @@ export function FileBrowser() {
               Media
             </button>
           </div>
-          {/* Active pane content */}
-          <div className="flex-1 overflow-hidden">
-            {mobileActivePane === "downloads" ? (
-              <FilePane
-                pane="downloads"
-                onCopy={handleCopy}
-                onMove={handleMove}
-                onDelete={handleDelete}
-                onRename={handleRename}
-                paneRef={setDownloadsPaneRef}
-              />
-            ) : (
-              <FilePane
-                pane="media"
-                onDelete={handleDelete}
-                onRename={handleRename}
-                onCreateFolder={handleCreateFolder}
-                paneRef={setMediaPaneRef}
-              />
-            )}
+          {/* Active pane content - both panes stay mounted to preserve state */}
+          <div className={`flex-1 overflow-hidden ${mobileActivePane === "downloads" ? "" : "hidden"}`}>
+            <FilePane
+              pane="downloads"
+              onCopy={handleCopy}
+              onMove={handleMove}
+              onDelete={handleDelete}
+              onRename={handleRename}
+              paneRef={setDownloadsPaneRef}
+            />
+          </div>
+          <div className={`flex-1 overflow-hidden ${mobileActivePane === "media" ? "" : "hidden"}`}>
+            <FilePane
+              pane="media"
+              onDelete={handleDelete}
+              onRename={handleRename}
+              onCreateFolder={handleCreateFolder}
+              paneRef={setMediaPaneRef}
+            />
           </div>
         </div>
       ) : (
@@ -584,6 +570,7 @@ export function FileBrowser() {
         seriesBaseFolders={config.seriesBaseFolders}
         moviesBaseFolders={config.moviesBaseFolders}
         movieFolderStructure={config.movieFolderStructure}
+        preserveQualityInfo={config.preserveQualityInfo}
       />
 
       <BatchIdentifyDialog
@@ -596,11 +583,12 @@ export function FileBrowser() {
         language={config.language}
         moviesBaseFolders={config.moviesBaseFolders}
         movieFolderStructure={config.movieFolderStructure}
+        preserveQualityInfo={config.preserveQualityInfo}
       />
 
       <SettingsDialog
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={onSettingsOpenChange}
         language={config.language}
         onLanguageChange={setLanguage}
         seriesBaseFolders={config.seriesBaseFolders}
@@ -609,6 +597,8 @@ export function FileBrowser() {
         onMoviesBaseFoldersChange={(folders) => updateConfig({ moviesBaseFolders: folders })}
         movieFolderStructure={config.movieFolderStructure}
         onMovieFolderStructureChange={(structure) => updateConfig({ movieFolderStructure: structure })}
+        preserveQualityInfo={config.preserveQualityInfo}
+        onPreserveQualityInfoChange={(preserve) => updateConfig({ preserveQualityInfo: preserve })}
         isLoading={configLoading}
       />
     </div>
