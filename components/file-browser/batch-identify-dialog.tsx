@@ -761,7 +761,7 @@ export function BatchIdentifyDialog({
                               }}
                               className={`text-xs font-medium text-left w-full cursor-pointer ${
                                 fi.skipped ? "line-through text-muted-foreground" : ""
-                              } ${expandedFileName === index ? "whitespace-normal break-all block" : "truncate block max-w-[200px]"}`}
+                              } ${expandedFileName === index ? "whitespace-normal break-all block" : "truncate block max-w-50"}`}
                             >
                               {fi.file.name}
                             </span>
@@ -777,7 +777,7 @@ export function BatchIdentifyDialog({
                                   {fi.file.name}
                                 </p>
                               </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-[300px] break-all">
+                              <TooltipContent side="top" className="max-w-75 break-all">
                                 {fi.file.name}
                               </TooltipContent>
                             </Tooltip>
@@ -978,7 +978,7 @@ export function BatchIdentifyDialog({
                                     → {fi.newPath}
                                   </p>
                                 </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-[400px] break-all">
+                                <TooltipContent side="top" className="max-w-100 break-all">
                                   {fi.newPath}
                                 </TooltipContent>
                               </Tooltip>
