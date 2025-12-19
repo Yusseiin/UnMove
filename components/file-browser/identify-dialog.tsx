@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -166,6 +166,27 @@ export function IdentifyDialog({
     const folder = folders.find(f => f.name === selectedBaseFolder);
     return folder?.preserveQualityInfo ?? false;
   }, [selectedBaseFolder, selectedResult, seriesBaseFolders, moviesBaseFolders]);
+
+  // Get the alwaysUseFFprobe setting from the selected folder
+  const getAlwaysUseFFprobe = useCallback(() => {
+    if (!selectedBaseFolder || !selectedResult) return false;
+    const folders = selectedResult.type === "series" ? seriesBaseFolders : moviesBaseFolders;
+    const folder = folders.find(f => f.name === selectedBaseFolder);
+    return folder?.alwaysUseFFprobe ?? false;
+  }, [selectedBaseFolder, selectedResult, seriesBaseFolders, moviesBaseFolders]);
+
+  // Helper to get the appropriate quality info based on settings
+  // If alwaysUseFFprobe is enabled, always use mediaInfoQuality (ignoring filename)
+  // Otherwise, prefer filename quality (more reliable for scene releases)
+  const getQualityInfo = useCallback((file: ScannedFile) => {
+    const alwaysFFprobe = getAlwaysUseFFprobe();
+    if (alwaysFFprobe && file.mediaInfoQuality) {
+      // Always use ffprobe result, ignore filename parsing
+      return file.mediaInfoQuality;
+    }
+    // Default: prefer filename quality, fallback to ffprobe if filename has no quality info
+    return file.parsed.qualityInfo || file.mediaInfoQuality;
+  }, [getAlwaysUseFFprobe]);
 
   // Existing files check state
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
@@ -407,7 +428,7 @@ export function IdentifyDialog({
     // Build filename with optional quality info (based on selected folder's setting)
     // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
     const preserveQuality = getPreserveQualityInfo();
-    const qualityInfo = file.mediaInfoQuality || file.parsed.qualityInfo;
+    const qualityInfo = getQualityInfo(file);
     const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
     const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
@@ -486,7 +507,7 @@ export function IdentifyDialog({
 
       // Add quality suffix if enabled (based on selected folder's setting)
       // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-      const qualityInfo = file.mediaInfoQuality || file.parsed.qualityInfo;
+      const qualityInfo = getQualityInfo(file);
       const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
       const ext = file.parsed.extension || "mkv";
       const newFileName = qualitySuffix
@@ -620,7 +641,7 @@ export function IdentifyDialog({
     // Add quality suffix if enabled (based on selected folder's setting)
     // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
     const preserveQuality = getPreserveQualityInfo();
-    const qualityInfo = file.mediaInfoQuality || file.parsed.qualityInfo;
+    const qualityInfo = getQualityInfo(file);
     const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
     const ext = file.parsed.extension || "mkv";
     const newFileName = qualitySuffix
@@ -797,6 +818,48 @@ export function IdentifyDialog({
   const sortedSeasons = Object.keys(mappingsBySeason)
     .map(Number)
     .sort((a, b) => a - b);
+
+  // Calculate missing episodes per season
+  const missingEpisodesBySeason = useMemo(() => {
+    if (!selectedResult || selectedResult.type !== "series" || episodes.length === 0) {
+      return {};
+    }
+
+    const result: Record<number, TVDBEpisode[]> = {};
+
+    // Get all seasons that have episodes in TVDB
+    const allSeasons = [...new Set(episodes.map(ep => ep.seasonNumber))].sort((a, b) => a - b);
+
+    for (const season of allSeasons) {
+      // Get all episodes for this season from TVDB
+      const seasonEpisodes = episodes.filter(ep => ep.seasonNumber === season);
+
+      // Get episode numbers that we have files for (successfully matched, not skipped)
+      const mappedEpisodeNumbers = new Set(
+        fileMappings
+          .filter(m => m.episode?.seasonNumber === season && !m.skipped && !m.error)
+          .map(m => m.episode!.number)
+      );
+
+      // Find missing episodes
+      const missing = seasonEpisodes.filter(ep => !mappedEpisodeNumbers.has(ep.number));
+
+      if (missing.length > 0) {
+        result[season] = missing.sort((a, b) => a.number - b.number);
+      }
+    }
+
+    return result;
+  }, [selectedResult, episodes, fileMappings]);
+
+  // Total missing episodes count
+  const totalMissingEpisodes = Object.values(missingEpisodesBySeason).reduce(
+    (sum, eps) => sum + eps.length,
+    0
+  );
+
+  // State for showing/hiding missing episodes section
+  const [showMissingEpisodes, setShowMissingEpisodes] = useState(false);
 
   // Check if we have files to show (for series with episodes loaded)
   const hasFilesToShow = fileMappings.length > 0 && selectedResult?.type === "series" && episodes.length > 0;
@@ -1310,6 +1373,68 @@ export function IdentifyDialog({
                   })}
                 </div>
               </ScrollArea>
+            </div>
+          )}
+
+          {/* Missing episodes section */}
+          {hasFilesToShow && totalMissingEpisodes > 0 && (
+            <div className="shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowMissingEpisodes(!showMissingEpisodes)}
+                className="flex items-center gap-2 text-xs sm:text-sm text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+              >
+                {showMissingEpisodes ? (
+                  <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
+                )}
+                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span>
+                  {language === "it"
+                    ? `${totalMissingEpisodes} episodi mancanti`
+                    : `${totalMissingEpisodes} missing episode${totalMissingEpisodes !== 1 ? "s" : ""}`}
+                </span>
+              </button>
+
+              {showMissingEpisodes && (
+                <div className="mt-2 border border-amber-500/30 rounded-md p-2 sm:p-3 bg-amber-500/5 max-h-32 sm:max-h-48 overflow-y-auto">
+                  <div className="space-y-2">
+                    {Object.entries(missingEpisodesBySeason)
+                      .sort(([a], [b]) => Number(a) - Number(b))
+                      .map(([seasonNum, missingEps]) => {
+                        const season = Number(seasonNum);
+                        const seasonLabel = season === 0
+                          ? strings.specials
+                          : `${strings.season} ${season}`;
+
+                        return (
+                          <div key={season}>
+                            <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">
+                              {seasonLabel} ({missingEps.length} {language === "it" ? "mancanti" : "missing"})
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {missingEps.map((ep) => (
+                                <Tooltip key={ep.id} delayDuration={0}>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] sm:text-xs bg-amber-500/20 text-amber-700 dark:text-amber-300 cursor-default">
+                                      E{formatSeason(ep.number)}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[200px]">
+                                    <p className="text-xs">
+                                      S{formatSeason(season)}E{formatSeason(ep.number)} - {getEpisodeDisplayName(ep)}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

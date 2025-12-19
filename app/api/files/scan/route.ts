@@ -150,45 +150,22 @@ export async function POST(request: NextRequest) {
       return epA - epB;
     });
 
-    // Check if qualityInfo is missing codec information (x264, x265, h264, h265, hevc, etc.)
-    // Files like "Movie 1080p.mkv" have resolution but no codec - we should probe for codec
-    const codecPatterns = /x264|x265|h\.?264|h\.?265|hevc|avc|xvid|divx|av1|vp9/i;
-    const isMissingCodec = (qualityInfo: string | undefined) => {
-      if (!qualityInfo) return true;
-      return !codecPatterns.test(qualityInfo);
-    };
-
-    // For files missing codec info, try to get it from ffprobe
-    // Only probe the first file (all files in a batch typically have the same quality)
-    const firstFileNeedingCodec = files.find(f => isMissingCodec(f.parsed.qualityInfo));
-    if (firstFileNeedingCodec) {
+    // Always probe ffprobe for quality/codec info
+    // The frontend decides whether to use ffprobe result or filename parsing
+    // based on user settings (alwaysUseFFprobe option)
+    if (files.length > 0) {
       try {
-        const validation = await validatePath(downloadBase, firstFileNeedingCodec.path);
+        // Probe the first file (all files in a batch typically have the same quality)
+        const firstFile = files[0];
+        const validation = await validatePath(downloadBase, firstFile.path);
         if (validation.valid) {
           const mediaInfo = await getMediaInfo(validation.absolutePath);
           if (mediaInfo) {
             const qualityFromMedia = buildQualityInfoFromMedia(mediaInfo);
             if (qualityFromMedia) {
-              // Apply to all files missing codec info (assuming same quality for batch)
+              // Set mediaInfoQuality for all files (frontend decides which to use)
               for (const file of files) {
-                if (isMissingCodec(file.parsed.qualityInfo)) {
-                  // If file already has resolution in qualityInfo, merge with codec from media
-                  // Otherwise use the full quality string from media
-                  if (file.parsed.qualityInfo) {
-                    // Existing qualityInfo has resolution but no codec - add codec from media
-                    // Extract just the codec part from mediaInfo quality
-                    const codecMatch = qualityFromMedia.match(codecPatterns);
-                    if (codecMatch) {
-                      file.mediaInfoQuality = `${file.parsed.qualityInfo}.${codecMatch[0]}`;
-                    }
-                    // Also check for HDR if present in media but not in filename
-                    if (qualityFromMedia.includes("HDR") && !file.parsed.qualityInfo.includes("HDR")) {
-                      file.mediaInfoQuality = (file.mediaInfoQuality || file.parsed.qualityInfo) + ".HDR";
-                    }
-                  } else {
-                    file.mediaInfoQuality = qualityFromMedia;
-                  }
-                }
+                file.mediaInfoQuality = qualityFromMedia;
               }
             }
           }

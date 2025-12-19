@@ -125,6 +125,26 @@ export function BatchIdentifyDialog({
     return folder?.preserveQualityInfo ?? false;
   }, [selectedBaseFolder, moviesBaseFolders]);
 
+  // Get the alwaysUseFFprobe setting from the selected folder
+  const getAlwaysUseFFprobe = useCallback(() => {
+    if (!selectedBaseFolder) return false;
+    const folder = moviesBaseFolders.find(f => f.name === selectedBaseFolder);
+    return folder?.alwaysUseFFprobe ?? false;
+  }, [selectedBaseFolder, moviesBaseFolders]);
+
+  // Helper to get the appropriate quality info based on settings
+  // If alwaysUseFFprobe is enabled, always use mediaInfoQuality (ignoring filename)
+  // Otherwise, prefer filename quality (more reliable for scene releases)
+  const getQualityInfo = useCallback((file: ScannedFile) => {
+    const alwaysFFprobe = getAlwaysUseFFprobe();
+    if (alwaysFFprobe && file.mediaInfoQuality) {
+      // Always use ffprobe result, ignore filename parsing
+      return file.mediaInfoQuality;
+    }
+    // Default: prefer filename quality, fallback to ffprobe if filename has no quality info
+    return file.parsed.qualityInfo || file.mediaInfoQuality;
+  }, [getAlwaysUseFFprobe]);
+
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<{
@@ -301,7 +321,7 @@ export function BatchIdentifyDialog({
               const ext = fi.file.parsed.extension || "mkv";
               const preserveQuality = getPreserveQualityInfo();
               // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-              const qualityInfo = fi.file.mediaInfoQuality || fi.file.parsed.qualityInfo;
+              const qualityInfo = getQualityInfo(fi.file);
               const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
               const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
@@ -372,7 +392,7 @@ export function BatchIdentifyDialog({
         const ext = fi.file.parsed.extension || "mkv";
         const preserveQuality = getPreserveQualityInfo();
         // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-        const qualityInfo = fi.file.mediaInfoQuality || fi.file.parsed.qualityInfo;
+        const qualityInfo = getQualityInfo(fi.file);
         const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
         const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
@@ -441,7 +461,7 @@ export function BatchIdentifyDialog({
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
         // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-        const qualityInfo = fi.file.mediaInfoQuality || fi.file.parsed.qualityInfo;
+        const qualityInfo = getQualityInfo(fi.file);
         const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
         const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 

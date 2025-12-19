@@ -71,6 +71,12 @@ export function SettingsDialog({
     );
   };
 
+  const toggleSeriesFolderFFprobe = (folderName: string, alwaysUse: boolean) => {
+    onSeriesBaseFoldersChange(
+      seriesBaseFolders.map(f => f.name === folderName ? { ...f, alwaysUseFFprobe: alwaysUse } : f)
+    );
+  };
+
   const addMoviesFolder = () => {
     const trimmed = newMoviesFolder.trim();
     if (trimmed && !moviesBaseFolders.some(f => f.name === trimmed)) {
@@ -86,6 +92,12 @@ export function SettingsDialog({
   const toggleMoviesFolderQuality = (folderName: string, preserve: boolean) => {
     onMoviesBaseFoldersChange(
       moviesBaseFolders.map(f => f.name === folderName ? { ...f, preserveQualityInfo: preserve } : f)
+    );
+  };
+
+  const toggleMoviesFolderFFprobe = (folderName: string, alwaysUse: boolean) => {
+    onMoviesBaseFoldersChange(
+      moviesBaseFolders.map(f => f.name === folderName ? { ...f, alwaysUseFFprobe: alwaysUse } : f)
     );
   };
 
@@ -152,12 +164,20 @@ export function SettingsDialog({
                 {seriesBaseFolders.map((folder) => (
                   <div
                     key={folder.name}
-                    className="flex items-center justify-between gap-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-md text-sm"
+                    className="bg-secondary text-secondary-foreground px-3 py-2 rounded-md text-sm"
                   >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="truncate">{folder.name}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate flex-1 min-w-0">{folder.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSeriesFolder(folder.name)}
+                        className="hover:text-destructive shrink-0"
+                        disabled={isLoading}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                       <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
                         <Checkbox
                           checked={folder.preserveQualityInfo}
@@ -167,14 +187,15 @@ export function SettingsDialog({
                         />
                         <span>{language === "it" ? "Qualità" : "Quality"}</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => removeSeriesFolder(folder.name)}
-                        className="hover:text-destructive"
-                        disabled={isLoading}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={folder.alwaysUseFFprobe ?? false}
+                          onCheckedChange={(checked) => toggleSeriesFolderFFprobe(folder.name, checked === true)}
+                          disabled={isLoading || !folder.preserveQualityInfo}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span>{language === "it" ? "Usa FFprobe" : "Use FFprobe"}</span>
+                      </label>
                     </div>
                   </div>
                 ))}
@@ -220,12 +241,20 @@ export function SettingsDialog({
                 {moviesBaseFolders.map((folder) => (
                   <div
                     key={folder.name}
-                    className="flex items-center justify-between gap-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-md text-sm"
+                    className="bg-secondary text-secondary-foreground px-3 py-2 rounded-md text-sm"
                   >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="truncate">{folder.name}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate flex-1 min-w-0">{folder.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeMoviesFolder(folder.name)}
+                        className="hover:text-destructive shrink-0"
+                        disabled={isLoading}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                       <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
                         <Checkbox
                           checked={folder.preserveQualityInfo}
@@ -235,14 +264,15 @@ export function SettingsDialog({
                         />
                         <span>{language === "it" ? "Qualità" : "Quality"}</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => removeMoviesFolder(folder.name)}
-                        className="hover:text-destructive"
-                        disabled={isLoading}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={folder.alwaysUseFFprobe ?? false}
+                          onCheckedChange={(checked) => toggleMoviesFolderFFprobe(folder.name, checked === true)}
+                          disabled={isLoading || !folder.preserveQualityInfo}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span>{language === "it" ? "Usa FFprobe" : "Use FFprobe"}</span>
+                      </label>
                     </div>
                   </div>
                 ))}

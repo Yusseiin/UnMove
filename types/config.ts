@@ -12,6 +12,7 @@ export type MovieFolderStructure = "year" | "name" | "none";
 export interface BaseFolder {
   name: string;
   preserveQualityInfo: boolean; // Keep quality/encoding info in renamed files (e.g., "[1080p.H264]")
+  alwaysUseFFprobe?: boolean; // Always use ffprobe for quality/codec info, ignoring filename parsing
 }
 
 export interface AppConfig {

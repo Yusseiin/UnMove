@@ -102,10 +102,54 @@ async function getDirectoryFiles(dirPath: string, basePath: string = ""): Promis
   return files;
 }
 
+// Default permissions for created files and directories
+// 0o775 = rwxrwxr-x for directories
+// 0o664 = rw-rw-r-- for files
+const DIR_MODE = 0o775;
+const FILE_MODE = 0o664;
+
+// Helper function to create directory with proper permissions on ALL created directories
+// fs.mkdir with recursive:true doesn't reliably set mode on intermediate directories
+async function mkdirWithPermissions(dirPath: string, baseDir: string): Promise<void> {
+  const normalizedDir = path.resolve(dirPath);
+  const normalizedBase = path.resolve(baseDir);
+
+  // Get the relative path from base to target
+  const relativePath = path.relative(normalizedBase, normalizedDir);
+  if (!relativePath || relativePath.startsWith('..')) {
+    // Target is at or above base, just create it
+    await fs.mkdir(dirPath, { recursive: true, mode: DIR_MODE });
+    return;
+  }
+
+  // Split into parts and create each directory with proper permissions
+  const parts = relativePath.split(path.sep);
+  let currentPath = normalizedBase;
+
+  for (const part of parts) {
+    currentPath = path.join(currentPath, part);
+    try {
+      await fs.mkdir(currentPath, { mode: DIR_MODE });
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        // Directory exists, ensure permissions are correct
+        try {
+          await fs.chmod(currentPath, DIR_MODE);
+        } catch {
+          // Ignore chmod errors (might not have permission to change)
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // Helper function to copy a directory with progress reporting
 async function copyDirectoryWithProgress(
   sourceDir: string,
   destDir: string,
+  mediaBase: string,
   onProgress: (bytesCopied: number, bytesTotal: number) => void
 ): Promise<void> {
   // Get all files and calculate total size
@@ -113,16 +157,16 @@ async function copyDirectoryWithProgress(
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
   let totalBytesCopied = 0;
 
-  // Create destination directory
-  await fs.mkdir(destDir, { recursive: true });
+  // Create destination directory with proper permissions on ALL levels
+  await mkdirWithPermissions(destDir, mediaBase);
 
   // Copy each file
   for (const file of files) {
     const destPath = path.join(destDir, file.relativePath);
     const destFileDir = path.dirname(destPath);
 
-    // Create subdirectory if needed
-    await fs.mkdir(destFileDir, { recursive: true });
+    // Create subdirectory if needed with proper permissions on ALL levels
+    await mkdirWithPermissions(destFileDir, mediaBase);
 
     // Copy file with progress
     await copyFileWithProgress(file.absolutePath, destPath, (bytesCopied, bytesTotal) => {
@@ -130,6 +174,9 @@ async function copyDirectoryWithProgress(
       const overallCopied = totalBytesCopied + bytesCopied;
       onProgress(overallCopied, totalBytes);
     });
+
+    // Set file permissions after copy
+    await fs.chmod(destPath, FILE_MODE);
 
     totalBytesCopied += file.size;
   }
@@ -250,10 +297,10 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            // Create destination directory if needed
+            // Create destination directory if needed with proper permissions on ALL levels
             const destDir = path.dirname(destFull);
             if (!createdDirs.has(destDir)) {
-              await fs.mkdir(destDir, { recursive: true, mode: 0o775 });
+              await mkdirWithPermissions(destDir, mediaBase);
               createdDirs.add(destDir);
             }
 
@@ -273,19 +320,10 @@ export async function POST(request: NextRequest) {
             const currentFileName = file.destinationPath.split("/").pop() || file.sourcePath;
             const isDirectory = sourceStats.isDirectory();
 
-            if (isDirectory) {
-              // For directories, copy with progress tracking
-              // Track last progress update time to throttle updates
-              let lastProgressUpdate = 0;
-              const progressThrottle = 100; // ms between updates
-
-              // Track timing for speed calculation using exponential moving average
-              const copyStartTime = Date.now();
-              let smoothedSpeed = 0;
-              let lastBytesCopied = 0;
-              let lastSpeedUpdate = copyStartTime;
-              const smoothingFactor = 0.3; // Lower = smoother but slower to respond
-
+            // For move operations, try fs.rename first (instant on same filesystem)
+            // Only fall back to copy+delete if rename fails (cross-device move)
+            let usedRename = false;
+            if (operation === "move") {
               // If overwriting, remove existing destination first
               if (overwrite) {
                 try {
@@ -295,115 +333,169 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              // Copy directory with progress reporting
-              await copyDirectoryWithProgress(sourceFull, destFull, (bytesCopied, bytesTotal) => {
-                const now = Date.now();
-                // Only send update if enough time has passed or we're at 100%
-                if (now - lastProgressUpdate >= progressThrottle || bytesCopied === bytesTotal) {
-                  // Calculate instantaneous speed
-                  const timeDelta = (now - lastSpeedUpdate) / 1000; // Convert to seconds
-                  const bytesDelta = bytesCopied - lastBytesCopied;
-                  const instantSpeed = timeDelta > 0 ? bytesDelta / timeDelta : 0;
-
-                  // Apply exponential moving average for smooth speed display
-                  if (smoothedSpeed === 0) {
-                    smoothedSpeed = instantSpeed;
-                  } else {
-                    smoothedSpeed = smoothingFactor * instantSpeed + (1 - smoothingFactor) * smoothedSpeed;
-                  }
-
-                  lastProgressUpdate = now;
-                  lastSpeedUpdate = now;
-                  lastBytesCopied = bytesCopied;
-
-                  sendProgress({
-                    type: "file_progress",
-                    current: i + 1,
-                    total,
-                    currentFile: currentFileName,
-                    completed,
-                    failed,
-                    errors,
-                    bytesCopied,
-                    bytesTotal,
-                    bytesPerSecond: Math.round(smoothedSpeed),
-                  });
+              try {
+                await fs.rename(sourceFull, destFull);
+                usedRename = true;
+                // Send instant completion for this file
+                sendProgress({
+                  type: "file_progress",
+                  current: i + 1,
+                  total,
+                  currentFile: currentFileName,
+                  completed,
+                  failed,
+                  errors,
+                  bytesCopied: fileSize,
+                  bytesTotal: fileSize,
+                  bytesPerSecond: 0, // Instant, no meaningful speed
+                });
+              } catch (renameErr: unknown) {
+                // If EXDEV (cross-device link), fall back to copy+delete
+                // Otherwise rethrow the error
+                if ((renameErr as NodeJS.ErrnoException).code !== "EXDEV") {
+                  throw renameErr;
                 }
-              });
-
-              // For move operation, delete source directory after successful copy
-              if (operation === "move") {
-                await fs.rm(sourceFull, { recursive: true, force: true });
-              }
-            } else {
-              // For files, use streaming copy with progress reporting
-              // Track last progress update time to throttle updates
-              let lastProgressUpdate = 0;
-              const progressThrottle = 100; // ms between updates
-
-              // Track timing for speed calculation using exponential moving average
-              const copyStartTime = Date.now();
-              let smoothedSpeed = 0;
-              let lastBytesCopied = 0;
-              let lastSpeedUpdate = copyStartTime;
-              const smoothingFactor = 0.3; // Lower = smoother but slower to respond
-
-              // If overwriting, remove existing destination first
-              if (overwrite) {
-                try {
-                  await fs.rm(destFull, { recursive: true, force: true });
-                } catch {
-                  // Ignore if doesn't exist
-                }
-              }
-
-              // Copy file with progress reporting
-              await copyFileWithProgress(sourceFull, destFull, (bytesCopied, bytesTotal) => {
-                const now = Date.now();
-                // Only send update if enough time has passed or we're at 100%
-                if (now - lastProgressUpdate >= progressThrottle || bytesCopied === bytesTotal) {
-                  // Calculate instantaneous speed
-                  const timeDelta = (now - lastSpeedUpdate) / 1000; // Convert to seconds
-                  const bytesDelta = bytesCopied - lastBytesCopied;
-                  const instantSpeed = timeDelta > 0 ? bytesDelta / timeDelta : 0;
-
-                  // Apply exponential moving average for smooth speed display
-                  if (smoothedSpeed === 0) {
-                    smoothedSpeed = instantSpeed;
-                  } else {
-                    smoothedSpeed = smoothingFactor * instantSpeed + (1 - smoothingFactor) * smoothedSpeed;
-                  }
-
-                  lastProgressUpdate = now;
-                  lastSpeedUpdate = now;
-                  lastBytesCopied = bytesCopied;
-
-                  sendProgress({
-                    type: "file_progress",
-                    current: i + 1,
-                    total,
-                    currentFile: currentFileName,
-                    completed,
-                    failed,
-                    errors,
-                    bytesCopied,
-                    bytesTotal,
-                    bytesPerSecond: Math.round(smoothedSpeed),
-                  });
-                }
-              });
-
-              // For move operation, delete source after successful copy
-              if (operation === "move") {
-                await fs.unlink(sourceFull);
+                // Continue to copy+delete below
               }
             }
 
-            // Preserve original file permissions
-            try {
-              await fs.chmod(destFull, sourceStats.mode);
-            } catch {
-              // Ignore permission errors (might not be supported on all systems)
+            // If we didn't use rename (either copy operation or cross-device move)
+            if (!usedRename) {
+              if (isDirectory) {
+                // For directories, copy with progress tracking
+                // Track last progress update time to throttle updates
+                let lastProgressUpdate = 0;
+                const progressThrottle = 100; // ms between updates
+
+                // Track timing for speed calculation using exponential moving average
+                const copyStartTime = Date.now();
+                let smoothedSpeed = 0;
+                let lastBytesCopied = 0;
+                let lastSpeedUpdate = copyStartTime;
+                const smoothingFactor = 0.3; // Lower = smoother but slower to respond
+
+                // If overwriting (and not already handled by move), remove existing destination first
+                if (overwrite && operation !== "move") {
+                  try {
+                    await fs.rm(destFull, { recursive: true, force: true });
+                  } catch {
+                    // Ignore if doesn't exist
+                  }
+                }
+
+                // Copy directory with progress reporting
+                await copyDirectoryWithProgress(sourceFull, destFull, mediaBase, (bytesCopied, bytesTotal) => {
+                  const now = Date.now();
+                  // Only send update if enough time has passed or we're at 100%
+                  if (now - lastProgressUpdate >= progressThrottle || bytesCopied === bytesTotal) {
+                    // Calculate instantaneous speed
+                    const timeDelta = (now - lastSpeedUpdate) / 1000; // Convert to seconds
+                    const bytesDelta = bytesCopied - lastBytesCopied;
+                    const instantSpeed = timeDelta > 0 ? bytesDelta / timeDelta : 0;
+
+                    // Apply exponential moving average for smooth speed display
+                    if (smoothedSpeed === 0) {
+                      smoothedSpeed = instantSpeed;
+                    } else {
+                      smoothedSpeed = smoothingFactor * instantSpeed + (1 - smoothingFactor) * smoothedSpeed;
+                    }
+
+                    lastProgressUpdate = now;
+                    lastSpeedUpdate = now;
+                    lastBytesCopied = bytesCopied;
+
+                    sendProgress({
+                      type: "file_progress",
+                      current: i + 1,
+                      total,
+                      currentFile: currentFileName,
+                      completed,
+                      failed,
+                      errors,
+                      bytesCopied,
+                      bytesTotal,
+                      bytesPerSecond: Math.round(smoothedSpeed),
+                    });
+                  }
+                });
+
+                // For move operation (cross-device), delete source directory after successful copy
+                if (operation === "move") {
+                  await fs.rm(sourceFull, { recursive: true, force: true });
+                }
+              } else {
+                // For files, use streaming copy with progress reporting
+                // Track last progress update time to throttle updates
+                let lastProgressUpdate = 0;
+                const progressThrottle = 100; // ms between updates
+
+                // Track timing for speed calculation using exponential moving average
+                const copyStartTime = Date.now();
+                let smoothedSpeed = 0;
+                let lastBytesCopied = 0;
+                let lastSpeedUpdate = copyStartTime;
+                const smoothingFactor = 0.3; // Lower = smoother but slower to respond
+
+                // If overwriting (and not already handled by move), remove existing destination first
+                if (overwrite && operation !== "move") {
+                  try {
+                    await fs.rm(destFull, { recursive: true, force: true });
+                  } catch {
+                    // Ignore if doesn't exist
+                  }
+                }
+
+                // Copy file with progress reporting
+                await copyFileWithProgress(sourceFull, destFull, (bytesCopied, bytesTotal) => {
+                  const now = Date.now();
+                  // Only send update if enough time has passed or we're at 100%
+                  if (now - lastProgressUpdate >= progressThrottle || bytesCopied === bytesTotal) {
+                    // Calculate instantaneous speed
+                    const timeDelta = (now - lastSpeedUpdate) / 1000; // Convert to seconds
+                    const bytesDelta = bytesCopied - lastBytesCopied;
+                    const instantSpeed = timeDelta > 0 ? bytesDelta / timeDelta : 0;
+
+                    // Apply exponential moving average for smooth speed display
+                    if (smoothedSpeed === 0) {
+                      smoothedSpeed = instantSpeed;
+                    } else {
+                      smoothedSpeed = smoothingFactor * instantSpeed + (1 - smoothingFactor) * smoothedSpeed;
+                    }
+
+                    lastProgressUpdate = now;
+                    lastSpeedUpdate = now;
+                    lastBytesCopied = bytesCopied;
+
+                    sendProgress({
+                      type: "file_progress",
+                      current: i + 1,
+                      total,
+                      currentFile: currentFileName,
+                      completed,
+                      failed,
+                      errors,
+                      bytesCopied,
+                      bytesTotal,
+                      bytesPerSecond: Math.round(smoothedSpeed),
+                    });
+                  }
+                });
+
+                // For move operation (cross-device), delete source after successful copy
+                if (operation === "move") {
+                  await fs.unlink(sourceFull);
+                }
+              }
+            }
+
+            // Set proper file permissions (for Unraid/Docker compatibility)
+            // Use FILE_MODE (0o664 = rw-rw-r--) for files, directories already handled with DIR_MODE
+            if (!isDirectory) {
+              try {
+                await fs.chmod(destFull, FILE_MODE);
+              } catch {
+                // Ignore permission errors (might not be supported on all systems)
+              }
             }
 
             completed++;
