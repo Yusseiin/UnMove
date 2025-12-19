@@ -3,16 +3,22 @@
 export type Language = "en" | "it";
 
 // Movie folder structure options
-export type MovieFolderStructure = "year" | "name";
+export type MovieFolderStructure = "year" | "name" | "none";
 // "year" = BasePath/2025/Movie Name (2025).mkv
 // "name" = BasePath/Movie Name (2025)/Movie Name (2025).mkv
+// "none" = BasePath/Movie Name (2025).mkv
+
+// Base folder with per-folder settings
+export interface BaseFolder {
+  name: string;
+  preserveQualityInfo: boolean; // Keep quality/encoding info in renamed files (e.g., "[1080p.H264]")
+}
 
 export interface AppConfig {
   language: Language;
-  seriesBaseFolders: string[]; // Base folders for TV series (e.g., ["TV Series", "Anime"])
-  moviesBaseFolders: string[]; // Base folders for movies (e.g., ["Movies", "Documentaries"])
+  seriesBaseFolders: BaseFolder[]; // Base folders for TV series (e.g., [{name: "TV Series", preserveQualityInfo: true}])
+  moviesBaseFolders: BaseFolder[]; // Base folders for movies (e.g., [{name: "Movies", preserveQualityInfo: false}])
   movieFolderStructure: MovieFolderStructure; // How to organize movie files
-  preserveQualityInfo: boolean; // Keep quality/encoding info in renamed files (e.g., "1080p.H264")
 }
 
 export const defaultConfig: AppConfig = {
@@ -20,7 +26,6 @@ export const defaultConfig: AppConfig = {
   seriesBaseFolders: [],
   moviesBaseFolders: [],
   movieFolderStructure: "name", // Default: Movie Name folder
-  preserveQualityInfo: false, // Default: don't preserve quality info
 };
 
 // Localized strings

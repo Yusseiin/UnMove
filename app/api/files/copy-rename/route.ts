@@ -79,9 +79,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get source file stats to preserve permissions
+    const sourceStats = await fs.stat(fullSourcePath);
+
     // Create parent directories if they don't exist
     const destDir = path.dirname(fullDestPath);
-    await fs.mkdir(destDir, { recursive: true });
+    await fs.mkdir(destDir, { recursive: true, mode: 0o775 });
 
     // If overwriting, remove existing destination
     if (destExists && overwrite) {
@@ -94,6 +97,13 @@ export async function POST(request: NextRequest) {
       errorOnExist: true,
       preserveTimestamps: true,
     });
+
+    // Preserve original file permissions
+    try {
+      await fs.chmod(fullDestPath, sourceStats.mode);
+    } catch {
+      // Ignore permission errors (might not be supported on all systems)
+    }
 
     // Verify the copy with hash comparison
     const verification = await verifyFileCopy(fullSourcePath, fullDestPath);

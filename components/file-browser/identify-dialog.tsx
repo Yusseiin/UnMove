@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
-import { File, AlertCircle, AlertTriangle, Image as ImageIcon, Pencil, Check, X, ChevronDown, ChevronRight, Search } from "lucide-react";
+import { File, AlertCircle, AlertTriangle, Image as ImageIcon, Pencil, Check, X, ChevronDown, ChevronRight, Search, Loader2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -43,14 +43,24 @@ import type {
   ParsedFileName,
   TVDBApiResponse,
 } from "@/types/tvdb";
-import type { Language, MovieFolderStructure } from "@/types/config";
+import type { Language, MovieFolderStructure, BaseFolder } from "@/types/config";
 import { getLocalizedStrings } from "@/types/config";
+
+// Helper function to format bytes as human-readable string
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
 
 interface ScannedFile {
   path: string;
   name: string;
   relativePath: string;
   parsed: ParsedFileName;
+  mediaInfoQuality?: string; // Quality info from ffprobe (fallback when not in filename)
 }
 
 interface FileMapping {
@@ -73,10 +83,9 @@ interface IdentifyDialogProps {
   onConfirm: (newPath: string) => void;
   isLoading?: boolean;
   language?: Language;
-  seriesBaseFolders?: string[];
-  moviesBaseFolders?: string[];
+  seriesBaseFolders?: BaseFolder[];
+  moviesBaseFolders?: BaseFolder[];
   movieFolderStructure?: MovieFolderStructure; // "year" = Year/Movie, "name" = Movie Name/Movie
-  preserveQualityInfo?: boolean; // Keep quality/encoding info in renamed files
 }
 
 export function IdentifyDialog({
@@ -92,7 +101,6 @@ export function IdentifyDialog({
   seriesBaseFolders = [],
   moviesBaseFolders = [],
   movieFolderStructure = "name",
-  preserveQualityInfo = false,
 }: IdentifyDialogProps) {
   const isMobile = useIsMobile();
   // Get localized strings based on language
@@ -126,6 +134,9 @@ export function IdentifyDialog({
     currentFile: string;
     completed: number;
     failed: number;
+    bytesCopied?: number;
+    bytesTotal?: number;
+    bytesPerSecond?: number;
   } | null>(null);
 
   // Manual episode selection state
@@ -147,6 +158,14 @@ export function IdentifyDialog({
 
   // Selected base folder for series/movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
+
+  // Get the preserveQualityInfo setting from the selected folder
+  const getPreserveQualityInfo = useCallback(() => {
+    if (!selectedBaseFolder || !selectedResult) return false;
+    const folders = selectedResult.type === "series" ? seriesBaseFolders : moviesBaseFolders;
+    const folder = folders.find(f => f.name === selectedBaseFolder);
+    return folder?.preserveQualityInfo ?? false;
+  }, [selectedBaseFolder, selectedResult, seriesBaseFolders, moviesBaseFolders]);
 
   // Existing files check state
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
@@ -385,8 +404,11 @@ export function IdentifyDialog({
     const year = selectedResult.year || "";
     const ext = file.parsed.extension || "mkv";
 
-    // Build filename with optional quality info
-    const qualitySuffix = preserveQualityInfo && file.parsed.qualityInfo ? ` [${file.parsed.qualityInfo}]` : "";
+    // Build filename with optional quality info (based on selected folder's setting)
+    // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
+    const preserveQuality = getPreserveQualityInfo();
+    const qualityInfo = file.mediaInfoQuality || file.parsed.qualityInfo;
+    const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
     const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
     // Prepend selected base folder if configured
@@ -394,7 +416,10 @@ export function IdentifyDialog({
 
     // Determine folder structure based on setting
     let folderPath: string;
-    if (movieFolderStructure === "year" && year) {
+    if (movieFolderStructure === "none") {
+      // No folder: BasePath/Movie Name (2025).mkv
+      folderPath = `${basePath}${movieFileName}`;
+    } else if (movieFolderStructure === "year" && year) {
       // Year-based: BasePath/2025/Movie Name (2025).mkv
       folderPath = `${basePath}${year}/${movieFileName}`;
     } else {
@@ -417,6 +442,9 @@ export function IdentifyDialog({
     const seriesName = sanitizeFileName(getDisplayName(selectedResult));
     const seriesYear = selectedResult.year || "";
     const seriesFolder = `${seriesName}${seriesYear ? ` (${seriesYear})` : ""}`;
+
+    // Get preserveQualityInfo from selected folder
+    const preserveQuality = getPreserveQualityInfo();
 
     // First pass: create initial mappings
     const initialMappings: FileMapping[] = scannedFiles.map(file => {
@@ -456,8 +484,10 @@ export function IdentifyDialog({
         file.parsed.extension || "mkv"
       );
 
-      // Add quality suffix if enabled
-      const qualitySuffix = preserveQualityInfo && file.parsed.qualityInfo ? ` [${file.parsed.qualityInfo}]` : "";
+      // Add quality suffix if enabled (based on selected folder's setting)
+      // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
+      const qualityInfo = file.mediaInfoQuality || file.parsed.qualityInfo;
+      const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
       const ext = file.parsed.extension || "mkv";
       const newFileName = qualitySuffix
         ? baseFileName.replace(`.${ext}`, `${qualitySuffix}.${ext}`)
@@ -587,8 +617,11 @@ export function IdentifyDialog({
       file.parsed.extension || "mkv"
     );
 
-    // Add quality suffix if enabled
-    const qualitySuffix = preserveQualityInfo && file.parsed.qualityInfo ? ` [${file.parsed.qualityInfo}]` : "";
+    // Add quality suffix if enabled (based on selected folder's setting)
+    // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
+    const preserveQuality = getPreserveQualityInfo();
+    const qualityInfo = file.mediaInfoQuality || file.parsed.qualityInfo;
+    const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
     const ext = file.parsed.extension || "mkv";
     const newFileName = qualitySuffix
       ? baseFileName.replace(`.${ext}`, `${qualitySuffix}.${ext}`)
@@ -707,13 +740,16 @@ export function IdentifyDialog({
             try {
               const data = JSON.parse(line.slice(6));
 
-              if (data.type === "progress") {
+              if (data.type === "progress" || data.type === "file_progress") {
                 setProgress({
                   current: data.current,
                   total: data.total,
                   currentFile: data.currentFile || "",
                   completed: data.completed,
                   failed: data.failed,
+                  bytesCopied: data.bytesCopied,
+                  bytesTotal: data.bytesTotal,
+                  bytesPerSecond: data.bytesPerSecond,
                 });
               } else if (data.type === "complete") {
                 if (data.completed > 0) {
@@ -783,6 +819,47 @@ export function IdentifyDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Mobile progress bar - shown at top, outside scrollable area */}
+        {isMobile && progress && (
+          <div className="shrink-0 space-y-2 py-2 border-b bg-background">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-muted-foreground">
+                  {operation === "copy" ? (language === "it" ? "Copiando" : "Copying") : (language === "it" ? "Spostando" : "Moving")}...
+                </span>
+              </div>
+              <span className="font-medium">
+                {progress.current} / {progress.total}
+              </span>
+            </div>
+            <Progress value={(progress.current / progress.total) * 100} className="h-1.5" />
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span className="truncate max-w-[50%]">{progress.currentFile}</span>
+              {progress.bytesPerSecond !== undefined && progress.bytesPerSecond > 0 && (
+                <span className="shrink-0">{formatBytes(progress.bytesPerSecond)}/s</span>
+              )}
+            </div>
+            {/* Byte progress (compact) */}
+            {progress.bytesTotal !== undefined && progress.bytesTotal > 0 && (
+              <div className="flex items-center gap-2">
+                <Progress
+                  value={(progress.bytesCopied ?? 0) / progress.bytesTotal * 100}
+                  className="h-1 flex-1"
+                />
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {Math.round((progress.bytesCopied ?? 0) / progress.bytesTotal * 100)}%
+                </span>
+              </div>
+            )}
+            {progress.failed > 0 && (
+              <p className="text-xs text-destructive">
+                {progress.failed} {language === "it" ? "falliti" : "failed"}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex-1 min-h-0 overflow-y-auto space-y-3 py-2 sm:flex sm:flex-col">
           {/* Scanning state */}
           {isScanning && (
@@ -824,7 +901,11 @@ export function IdentifyDialog({
                   disabled={!searchQuery.trim() || isSearching}
                   title="Search"
                 >
-                  <Search className={`h-4 w-4 ${isSearching ? "animate-pulse" : ""}`} />
+                  {isSearching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
             </div>
@@ -836,9 +917,9 @@ export function IdentifyDialog({
               <label className="text-sm font-medium">Results</label>
               <div className="border rounded-md max-h-32 overflow-y-auto">
                 {isSearching ? (
-                  <div className="p-3 space-y-2">
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
+                  <div className="p-4 flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span className="text-sm">{language === "it" ? "Ricerca in corso..." : "Searching TVDB..."}</span>
                   </div>
                 ) : searchError ? (
                   <div className="p-3 text-sm text-destructive">{searchError}</div>
@@ -903,9 +984,9 @@ export function IdentifyDialog({
 
           {/* Loading episodes */}
           {isLoadingEpisodes && (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-1/2" />
-              <Skeleton className="h-20 w-full" />
+            <div className="p-4 flex items-center justify-center gap-2 text-muted-foreground border rounded-md">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">{language === "it" ? "Caricamento episodi..." : "Loading episodes..."}</span>
             </div>
           )}
 
@@ -929,8 +1010,8 @@ export function IdentifyDialog({
                     {language === "it" ? "(Radice Media)" : "(Media Root)"}
                   </SelectItem>
                   {(selectedResult.type === "series" ? seriesBaseFolders : moviesBaseFolders).map((folder) => (
-                    <SelectItem key={folder} value={folder}>
-                      {folder}
+                    <SelectItem key={folder.name} value={folder.name}>
+                      {folder.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1048,7 +1129,7 @@ export function IdentifyDialog({
                                         <button
                                           type="button"
                                           onClick={() => setExpandedFileName(expandedFileName === fileIndex ? null : fileIndex)}
-                                          className={`text-sm font-medium text-left w-full ${isSkipped ? "line-through text-muted-foreground" : ""} ${expandedFileName === fileIndex ? "whitespace-normal break-all" : "truncate max-w-[150px]"}`}
+                                          className={`text-sm font-medium text-left w-full ${isSkipped ? "line-through text-muted-foreground" : ""} ${expandedFileName === fileIndex ? "whitespace-normal break-all" : "truncate max-w-37.5"}`}
                                         >
                                           {m.file.name}
                                         </button>
@@ -1060,7 +1141,7 @@ export function IdentifyDialog({
                                               {m.file.name}
                                             </p>
                                           </TooltipTrigger>
-                                          <TooltipContent side="top" className="max-w-[300px] break-all">
+                                          <TooltipContent side="top" className="max-w-75 break-all">
                                             {m.file.name}
                                           </TooltipContent>
                                         </Tooltip>
@@ -1086,7 +1167,7 @@ export function IdentifyDialog({
                                                   → S{formatSeason(m.episode.seasonNumber ?? 0)}E{formatSeason(m.episode.number ?? 0)} - {getEpisodeDisplayName(m.episode)}
                                                 </p>
                                               </TooltipTrigger>
-                                              <TooltipContent side="top" className="max-w-[400px] break-all">
+                                              <TooltipContent side="top" className="max-w-100 break-all">
                                                 {m.newPath}
                                               </TooltipContent>
                                             </Tooltip>
@@ -1254,7 +1335,7 @@ export function IdentifyDialog({
                         <span className="truncate">{validMappings[0]?.newPath}</span>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[400px] break-all">
+                    <TooltipContent side="top" className="max-w-100 break-all">
                       {validMappings[0]?.newPath}
                     </TooltipContent>
                   </Tooltip>
@@ -1286,12 +1367,12 @@ export function IdentifyDialog({
             </div>
           )}
 
-          {/* Progress bar during operation */}
-          {progress && (
+          {/* Progress bar during operation - desktop only (mobile has fixed progress at top) */}
+          {!isMobile && progress && (
             <div className="space-y-2 py-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
-                  {operation === "copy" ? "Copying" : "Moving"} files...
+                  {operation === "copy" ? (language === "it" ? "Copiando" : "Copying") : (language === "it" ? "Spostando" : "Moving")} {language === "it" ? "file" : "files"}...
                 </span>
                 <span className="font-medium">
                   {progress.current} / {progress.total}
@@ -1301,9 +1382,31 @@ export function IdentifyDialog({
               <p className="text-xs text-muted-foreground truncate">
                 {progress.currentFile}
               </p>
+              {/* Byte-level progress for current file */}
+              {progress.bytesTotal !== undefined && progress.bytesTotal > 0 && (
+                <div className="space-y-1">
+                  <Progress
+                    value={(progress.bytesCopied ?? 0) / progress.bytesTotal * 100}
+                    className="h-1.5"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {formatBytes(progress.bytesCopied ?? 0)} / {formatBytes(progress.bytesTotal)}
+                    {progress.bytesTotal > 0 && (
+                      <span className="ml-2">
+                        ({Math.round((progress.bytesCopied ?? 0) / progress.bytesTotal * 100)}%)
+                      </span>
+                    )}
+                    {progress.bytesPerSecond !== undefined && progress.bytesPerSecond > 0 && (
+                      <span className="ml-2">
+                        • {formatBytes(progress.bytesPerSecond)}/s
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
               {progress.failed > 0 && (
                 <p className="text-xs text-destructive">
-                  {progress.failed} failed
+                  {progress.failed} {language === "it" ? "falliti" : "failed"}
                 </p>
               )}
             </div>

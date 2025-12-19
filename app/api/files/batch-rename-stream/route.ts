@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import fs from "fs/promises";
+import { createReadStream, createWriteStream } from "fs";
 import path from "path";
 import { validatePath, getBasePath } from "@/lib/path-validator";
 
@@ -9,13 +10,15 @@ interface FileRename {
 }
 
 interface BatchRenameRequest {
-  files: FileRename[];
+  files?: FileRename[]; // Explicit source->dest mappings
+  sourcePaths?: string[]; // Alternative: source paths only
+  destinationFolder?: string; // Used with sourcePaths - destination folder (filename preserved)
   operation: "copy" | "move";
   overwrite?: boolean; // If true, overwrite existing files
 }
 
 interface ProgressUpdate {
-  type: "progress" | "complete" | "error";
+  type: "progress" | "file_progress" | "complete" | "error";
   current: number;
   total: number;
   currentFile?: string;
@@ -23,16 +26,144 @@ interface ProgressUpdate {
   failed: number;
   errors: string[];
   message?: string;
+  // Byte-level progress for current file
+  bytesCopied?: number;
+  bytesTotal?: number;
+  // Transfer speed in bytes per second
+  bytesPerSecond?: number;
+}
+
+// Helper function to copy file with progress reporting
+async function copyFileWithProgress(
+  sourcePath: string,
+  destPath: string,
+  onProgress: (bytesCopied: number, bytesTotal: number) => void
+): Promise<void> {
+  const stats = await fs.stat(sourcePath);
+  const totalBytes = stats.size;
+  let copiedBytes = 0;
+
+  return new Promise((resolve, reject) => {
+    const readStream = createReadStream(sourcePath);
+    const writeStream = createWriteStream(destPath);
+
+    readStream.on("data", (chunk: Buffer | string) => {
+      const chunkLength = typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+      copiedBytes += chunkLength;
+      onProgress(copiedBytes, totalBytes);
+    });
+
+    readStream.on("error", (err) => {
+      writeStream.destroy();
+      reject(err);
+    });
+
+    writeStream.on("error", (err) => {
+      readStream.destroy();
+      reject(err);
+    });
+
+    writeStream.on("finish", () => {
+      resolve();
+    });
+
+    readStream.pipe(writeStream);
+  });
+}
+
+// Helper function to get all files in a directory recursively with their sizes
+interface FileInfo {
+  relativePath: string;
+  absolutePath: string;
+  size: number;
+}
+
+async function getDirectoryFiles(dirPath: string, basePath: string = ""): Promise<FileInfo[]> {
+  const files: FileInfo[] = [];
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    const relativePath = basePath ? path.join(basePath, entry.name) : entry.name;
+
+    if (entry.isDirectory()) {
+      const subFiles = await getDirectoryFiles(fullPath, relativePath);
+      files.push(...subFiles);
+    } else if (entry.isFile()) {
+      const stats = await fs.stat(fullPath);
+      files.push({
+        relativePath,
+        absolutePath: fullPath,
+        size: stats.size,
+      });
+    }
+  }
+
+  return files;
+}
+
+// Helper function to copy a directory with progress reporting
+async function copyDirectoryWithProgress(
+  sourceDir: string,
+  destDir: string,
+  onProgress: (bytesCopied: number, bytesTotal: number) => void
+): Promise<void> {
+  // Get all files and calculate total size
+  const files = await getDirectoryFiles(sourceDir);
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  let totalBytesCopied = 0;
+
+  // Create destination directory
+  await fs.mkdir(destDir, { recursive: true });
+
+  // Copy each file
+  for (const file of files) {
+    const destPath = path.join(destDir, file.relativePath);
+    const destFileDir = path.dirname(destPath);
+
+    // Create subdirectory if needed
+    await fs.mkdir(destFileDir, { recursive: true });
+
+    // Copy file with progress
+    await copyFileWithProgress(file.absolutePath, destPath, (bytesCopied, bytesTotal) => {
+      // Calculate overall progress
+      const overallCopied = totalBytesCopied + bytesCopied;
+      onProgress(overallCopied, totalBytes);
+    });
+
+    totalBytesCopied += file.size;
+  }
+
+  // Final progress update (in case of empty directory)
+  if (files.length === 0) {
+    onProgress(0, 0);
+  }
 }
 
 export async function POST(request: NextRequest) {
   const body: BatchRenameRequest = await request.json();
-  const { files, operation, overwrite = false } = body;
+  const { files, sourcePaths, destinationFolder, operation, overwrite = false } = body;
 
-  // Validate request
-  if (!files || !Array.isArray(files) || files.length === 0) {
+  // Validate request - support two modes:
+  // 1. files array with explicit source->dest mappings (for identify/rename)
+  // 2. sourcePaths + destinationFolder (for normal copy/move - filename preserved)
+  let fileList: FileRename[] = [];
+
+  if (files && Array.isArray(files) && files.length > 0) {
+    // Mode 1: Explicit file mappings
+    fileList = files;
+  } else if (sourcePaths && Array.isArray(sourcePaths) && sourcePaths.length > 0 && destinationFolder !== undefined) {
+    // Mode 2: Source paths with destination folder (filename preserved)
+    fileList = sourcePaths.map(sourcePath => {
+      const fileName = sourcePath.split("/").pop() || sourcePath.split("\\").pop() || sourcePath;
+      return {
+        sourcePath,
+        destinationPath: destinationFolder ? `${destinationFolder}/${fileName}` : fileName,
+      };
+    });
+  } else {
     return new Response(
-      JSON.stringify({ type: "error", message: "files array is required" }),
+      JSON.stringify({ type: "error", message: "Either 'files' array or 'sourcePaths' with 'destinationFolder' is required" }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
@@ -43,6 +174,9 @@ export async function POST(request: NextRequest) {
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
+
+  // Use fileList instead of files from here on
+  const files_to_process = fileList;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -58,13 +192,13 @@ export async function POST(request: NextRequest) {
         let completed = 0;
         let failed = 0;
         const errors: string[] = [];
-        const total = files.length;
+        const total = files_to_process.length;
 
         // Track created directories to avoid duplicate mkdir calls
         const createdDirs = new Set<string>();
 
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
+        for (let i = 0; i < files_to_process.length; i++) {
+          const file = files_to_process[i];
 
           // Send progress update
           sendProgress({
@@ -119,7 +253,7 @@ export async function POST(request: NextRequest) {
             // Create destination directory if needed
             const destDir = path.dirname(destFull);
             if (!createdDirs.has(destDir)) {
-              await fs.mkdir(destDir, { recursive: true });
+              await fs.mkdir(destDir, { recursive: true, mode: 0o775 });
               createdDirs.add(destDir);
             }
 
@@ -136,12 +270,140 @@ export async function POST(request: NextRequest) {
               // File doesn't exist, proceed
             }
 
-            // Copy file (for large files, we could stream and report byte progress)
-            if (operation === "copy") {
-              await fs.copyFile(sourceFull, destFull);
+            const currentFileName = file.destinationPath.split("/").pop() || file.sourcePath;
+            const isDirectory = sourceStats.isDirectory();
+
+            if (isDirectory) {
+              // For directories, copy with progress tracking
+              // Track last progress update time to throttle updates
+              let lastProgressUpdate = 0;
+              const progressThrottle = 100; // ms between updates
+
+              // Track timing for speed calculation using exponential moving average
+              const copyStartTime = Date.now();
+              let smoothedSpeed = 0;
+              let lastBytesCopied = 0;
+              let lastSpeedUpdate = copyStartTime;
+              const smoothingFactor = 0.3; // Lower = smoother but slower to respond
+
+              // If overwriting, remove existing destination first
+              if (overwrite) {
+                try {
+                  await fs.rm(destFull, { recursive: true, force: true });
+                } catch {
+                  // Ignore if doesn't exist
+                }
+              }
+
+              // Copy directory with progress reporting
+              await copyDirectoryWithProgress(sourceFull, destFull, (bytesCopied, bytesTotal) => {
+                const now = Date.now();
+                // Only send update if enough time has passed or we're at 100%
+                if (now - lastProgressUpdate >= progressThrottle || bytesCopied === bytesTotal) {
+                  // Calculate instantaneous speed
+                  const timeDelta = (now - lastSpeedUpdate) / 1000; // Convert to seconds
+                  const bytesDelta = bytesCopied - lastBytesCopied;
+                  const instantSpeed = timeDelta > 0 ? bytesDelta / timeDelta : 0;
+
+                  // Apply exponential moving average for smooth speed display
+                  if (smoothedSpeed === 0) {
+                    smoothedSpeed = instantSpeed;
+                  } else {
+                    smoothedSpeed = smoothingFactor * instantSpeed + (1 - smoothingFactor) * smoothedSpeed;
+                  }
+
+                  lastProgressUpdate = now;
+                  lastSpeedUpdate = now;
+                  lastBytesCopied = bytesCopied;
+
+                  sendProgress({
+                    type: "file_progress",
+                    current: i + 1,
+                    total,
+                    currentFile: currentFileName,
+                    completed,
+                    failed,
+                    errors,
+                    bytesCopied,
+                    bytesTotal,
+                    bytesPerSecond: Math.round(smoothedSpeed),
+                  });
+                }
+              });
+
+              // For move operation, delete source directory after successful copy
+              if (operation === "move") {
+                await fs.rm(sourceFull, { recursive: true, force: true });
+              }
             } else {
-              await fs.copyFile(sourceFull, destFull);
-              await fs.unlink(sourceFull);
+              // For files, use streaming copy with progress reporting
+              // Track last progress update time to throttle updates
+              let lastProgressUpdate = 0;
+              const progressThrottle = 100; // ms between updates
+
+              // Track timing for speed calculation using exponential moving average
+              const copyStartTime = Date.now();
+              let smoothedSpeed = 0;
+              let lastBytesCopied = 0;
+              let lastSpeedUpdate = copyStartTime;
+              const smoothingFactor = 0.3; // Lower = smoother but slower to respond
+
+              // If overwriting, remove existing destination first
+              if (overwrite) {
+                try {
+                  await fs.rm(destFull, { recursive: true, force: true });
+                } catch {
+                  // Ignore if doesn't exist
+                }
+              }
+
+              // Copy file with progress reporting
+              await copyFileWithProgress(sourceFull, destFull, (bytesCopied, bytesTotal) => {
+                const now = Date.now();
+                // Only send update if enough time has passed or we're at 100%
+                if (now - lastProgressUpdate >= progressThrottle || bytesCopied === bytesTotal) {
+                  // Calculate instantaneous speed
+                  const timeDelta = (now - lastSpeedUpdate) / 1000; // Convert to seconds
+                  const bytesDelta = bytesCopied - lastBytesCopied;
+                  const instantSpeed = timeDelta > 0 ? bytesDelta / timeDelta : 0;
+
+                  // Apply exponential moving average for smooth speed display
+                  if (smoothedSpeed === 0) {
+                    smoothedSpeed = instantSpeed;
+                  } else {
+                    smoothedSpeed = smoothingFactor * instantSpeed + (1 - smoothingFactor) * smoothedSpeed;
+                  }
+
+                  lastProgressUpdate = now;
+                  lastSpeedUpdate = now;
+                  lastBytesCopied = bytesCopied;
+
+                  sendProgress({
+                    type: "file_progress",
+                    current: i + 1,
+                    total,
+                    currentFile: currentFileName,
+                    completed,
+                    failed,
+                    errors,
+                    bytesCopied,
+                    bytesTotal,
+                    bytesPerSecond: Math.round(smoothedSpeed),
+                  });
+                }
+              });
+
+              // For move operation, delete source after successful copy
+              if (operation === "move") {
+                await fs.unlink(sourceFull);
+              }
+            }
+
+            // Preserve original file permissions
+            try {
+              await fs.chmod(destFull, sourceStats.mode);
+            } catch {
+              // Ignore permission errors (might not be supported on all systems)
             }
 
             completed++;
@@ -155,10 +417,9 @@ export async function POST(request: NextRequest) {
 
         // Clean up empty source directories for move operations
         if (operation === "move" && completed > 0) {
-          const downloadBase = getBasePath("downloads");
           const sourceDirs = new Set<string>();
 
-          for (const file of files) {
+          for (const file of files_to_process) {
             try {
               const sourceValidation = await validatePath(downloadBase, file.sourcePath);
               if (sourceValidation.valid) {
@@ -199,9 +460,9 @@ export async function POST(request: NextRequest) {
         sendProgress({
           type: "error",
           current: 0,
-          total: files.length,
+          total: files_to_process.length,
           completed: 0,
-          failed: files.length,
+          failed: files_to_process.length,
           errors: [error instanceof Error ? error.message : "Unknown error"],
           message: "Operation failed",
         });

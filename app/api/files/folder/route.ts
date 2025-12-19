@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
       // Folder doesn't exist, which is what we want
     }
 
-    // Create the folder
-    await fs.mkdir(newFolderPath);
+    // Create the folder with proper permissions (rwxrwxr-x)
+    await fs.mkdir(newFolderPath, { mode: 0o775 });
 
     return NextResponse.json<OperationResponse>({
       success: true,

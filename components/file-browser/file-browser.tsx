@@ -17,6 +17,7 @@ import { DestinationPicker } from "./destination-picker";
 import { TransferConfirmDialog } from "./transfer-confirm-dialog";
 import { OverwriteConfirmDialog } from "./overwrite-confirm-dialog";
 import { TransferChoiceDialog } from "./transfer-choice-dialog";
+import { TransferProgressDialog } from "./transfer-progress-dialog";
 import { IdentifyDialog } from "./identify-dialog";
 import { BatchIdentifyDialog } from "./batch-identify-dialog";
 import { SettingsDialog } from "./settings-dialog";
@@ -49,6 +50,8 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
   const [overwriteConfirmOpen, setOverwriteConfirmOpen] = useState(false);
   const [conflictFiles, setConflictFiles] = useState<string[]>([]);
   const [transferChoiceOpen, setTransferChoiceOpen] = useState(false);
+  const [transferProgressOpen, setTransferProgressOpen] = useState(false);
+  const [transferProgressOverwrite, setTransferProgressOverwrite] = useState(false);
   const [identifyDialogOpen, setIdentifyDialogOpen] = useState(false);
   const [batchIdentifyDialogOpen, setBatchIdentifyDialogOpen] = useState(false);
   const [identifyFileName, setIdentifyFileName] = useState("");
@@ -177,45 +180,34 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
     return [];
   }, []);
 
-  // Execute transfer (copy or move)
-  const executeTransfer = useCallback(async (
+  // Execute transfer (copy or move) - opens progress dialog
+  const executeTransfer = useCallback((
     destinationPath: string,
     sourcePaths: string[],
     operation: "copy" | "move",
     overwrite: boolean = false
   ) => {
-    setIsOperationLoading(true);
+    // Store transfer info and open progress dialog
+    setTransferPaths(sourcePaths);
+    setTransferOperation(operation);
+    setTransferDestination(destinationPath);
+    setTransferProgressOverwrite(overwrite);
+    setDestinationPickerOpen(false);
+    setTransferConfirmOpen(false);
+    setOverwriteConfirmOpen(false);
+    setIsOperationLoading(false); // Reset loading state - progress dialog handles its own state
+    setTransferProgressOpen(true);
+  }, []);
 
-    try {
-      const endpoint = operation === "copy" ? "/api/files/copy" : "/api/files/move";
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourcePaths,
-          destinationPath,
-          overwrite,
-        }),
-      });
-
-      const data: OperationResponse = await response.json();
-
-      if (data.success) {
-        toast.success(data.message);
-        setDestinationPickerOpen(false);
-        setTransferConfirmOpen(false);
-        setOverwriteConfirmOpen(false);
-        // Clear selection and refresh both panes
-        downloadsPaneRef.current?.clearSelection();
-        downloadsPaneRef.current?.refresh();
-        mediaPaneRef.current?.refresh();
-      } else {
-        toast.error(data.error || "Operation failed");
-      }
-    } catch {
-      toast.error("Failed to complete operation");
-    } finally {
-      setIsOperationLoading(false);
+  // Handle transfer progress complete
+  const handleTransferProgressComplete = useCallback((success: boolean, message: string) => {
+    if (success) {
+      toast.success(message);
+      downloadsPaneRef.current?.clearSelection();
+      downloadsPaneRef.current?.refresh();
+      mediaPaneRef.current?.refresh();
+    } else {
+      toast.error(message);
     }
   }, []);
 
@@ -275,6 +267,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
   const handleDelete = useCallback((pane: PaneType, paths: string[]) => {
     setDeletePane(pane);
     setDeletePaths(paths);
+    setIsOperationLoading(false); // Reset loading state when opening delete dialog
     setDeleteConfirmOpen(true);
   }, []);
 
@@ -557,6 +550,18 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         isLoading={isOperationLoading}
       />
 
+      <TransferProgressDialog
+        open={transferProgressOpen}
+        onOpenChange={setTransferProgressOpen}
+        operation={transferOperation}
+        files={transferPaths.map(sourcePath => ({
+          sourcePath,
+          destinationPath: `${transferDestination}/${sourcePath.split("/").pop() || sourcePath.split("\\").pop() || sourcePath}`.replace(/^\/+/, ""),
+        }))}
+        overwrite={transferProgressOverwrite}
+        onComplete={handleTransferProgressComplete}
+      />
+
       <IdentifyDialog
         open={identifyDialogOpen}
         onOpenChange={setIdentifyDialogOpen}
@@ -570,7 +575,6 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         seriesBaseFolders={config.seriesBaseFolders}
         moviesBaseFolders={config.moviesBaseFolders}
         movieFolderStructure={config.movieFolderStructure}
-        preserveQualityInfo={config.preserveQualityInfo}
       />
 
       <BatchIdentifyDialog
@@ -583,7 +587,6 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         language={config.language}
         moviesBaseFolders={config.moviesBaseFolders}
         movieFolderStructure={config.movieFolderStructure}
-        preserveQualityInfo={config.preserveQualityInfo}
       />
 
       <SettingsDialog
@@ -597,8 +600,6 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onMoviesBaseFoldersChange={(folders) => updateConfig({ moviesBaseFolders: folders })}
         movieFolderStructure={config.movieFolderStructure}
         onMovieFolderStructureChange={(structure) => updateConfig({ movieFolderStructure: structure })}
-        preserveQualityInfo={config.preserveQualityInfo}
-        onPreserveQualityInfoChange={(preserve) => updateConfig({ preserveQualityInfo: preserve })}
         isLoading={configLoading}
       />
     </div>

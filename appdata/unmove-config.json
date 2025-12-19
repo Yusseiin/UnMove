@@ -1,14 +1,22 @@
 {
   "language": "en",
   "seriesBaseFolders": [
-    "Anime",
-    "Series"
+    {
+      "name": "Anime",
+      "preserveQualityInfo": false
+    },
+    {
+      "name": "Series",
+      "preserveQualityInfo": false
+    }
   ],
   "moviesBaseFolders": [
-    "Film"
+    {
+      "name": "Film",
+      "preserveQualityInfo": true
+    }
   ],
-  "movieFolderStructure": "year",
-  "preserveQualityInfo": true,
+  "movieFolderStructure": "none",
   "seriesBaseFolder": "Series",
   "moviesBaseFolder": "Film"
 }

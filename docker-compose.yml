@@ -2,11 +2,11 @@ version: "3.9"
 
 services:
   unmove:
-    image: yusseiin/unmove:v0.0.1
+    image: yusseiin/unmove:v0.0.2
     build:
       context: .
       args:
-        NEXT_PUBLIC_VERSION: "v0.0.1"
+        NEXT_PUBLIC_VERSION: "v0.0.2"
     container_name: unmove
     restart: unless-stopped
     ports:

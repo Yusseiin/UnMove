@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
-import type { AppConfig } from "@/types/config";
+import type { AppConfig, BaseFolder } from "@/types/config";
 import { defaultConfig } from "@/types/config";
 
 // Config file path - can be set via CONFIG_PATH env variable, defaults to project root
@@ -17,13 +17,42 @@ function getConfigPath(): string {
   return path.join(process.cwd(), "unmove-config.json");
 }
 
+// Migrate old string[] format to BaseFolder[] format
+function migrateBaseFolders(folders: unknown): BaseFolder[] {
+  if (!Array.isArray(folders)) return [];
+  return folders.map((folder) => {
+    // Already in new format
+    if (typeof folder === "object" && folder !== null && "name" in folder) {
+      return folder as BaseFolder;
+    }
+    // Old string format - migrate to new format with default preserveQualityInfo: false
+    if (typeof folder === "string") {
+      return { name: folder, preserveQualityInfo: false };
+    }
+    return { name: String(folder), preserveQualityInfo: false };
+  });
+}
+
 async function readConfig(): Promise<AppConfig> {
   try {
     const configPath = getConfigPath();
     const content = await fs.readFile(configPath, "utf-8");
-    const config = JSON.parse(content) as Partial<AppConfig>;
-    // Merge with defaults to ensure all fields exist
-    return { ...defaultConfig, ...config };
+    const rawConfig = JSON.parse(content);
+
+    // Migrate old format to new format
+    const config: AppConfig = {
+      ...defaultConfig,
+      ...rawConfig,
+      seriesBaseFolders: migrateBaseFolders(rawConfig.seriesBaseFolders),
+      moviesBaseFolders: migrateBaseFolders(rawConfig.moviesBaseFolders),
+    };
+
+    // Remove deprecated preserveQualityInfo if it exists at root level
+    if ("preserveQualityInfo" in rawConfig) {
+      delete (config as unknown as Record<string, unknown>).preserveQualityInfo;
+    }
+
+    return config;
   } catch {
     // File doesn't exist or invalid, return defaults
     return defaultConfig;

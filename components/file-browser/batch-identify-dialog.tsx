@@ -49,13 +49,23 @@ import type {
   ParsedFileName,
   TVDBApiResponse,
 } from "@/types/tvdb";
-import type { Language, MovieFolderStructure } from "@/types/config";
+import type { Language, MovieFolderStructure, BaseFolder } from "@/types/config";
+
+// Helper function to format bytes as human-readable string
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
 
 interface ScannedFile {
   path: string;
   name: string;
   relativePath: string;
   parsed: ParsedFileName;
+  mediaInfoQuality?: string; // Quality info from ffprobe (fallback when not in filename)
 }
 
 // Each file has its own identification state
@@ -81,9 +91,8 @@ interface BatchIdentifyDialogProps {
   onConfirm: (newPath: string) => void;
   isLoading?: boolean;
   language?: Language;
-  moviesBaseFolders?: string[];
+  moviesBaseFolders?: BaseFolder[];
   movieFolderStructure?: MovieFolderStructure;
-  preserveQualityInfo?: boolean;
 }
 
 export function BatchIdentifyDialog({
@@ -96,7 +105,6 @@ export function BatchIdentifyDialog({
   language = "en",
   moviesBaseFolders = [],
   movieFolderStructure = "name",
-  preserveQualityInfo = false,
 }: BatchIdentifyDialogProps) {
   const isMobile = useIsMobile();
 
@@ -110,6 +118,13 @@ export function BatchIdentifyDialog({
   // Selected base folder for movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
 
+  // Get the preserveQualityInfo setting from the selected folder
+  const getPreserveQualityInfo = useCallback(() => {
+    if (!selectedBaseFolder) return false;
+    const folder = moviesBaseFolders.find(f => f.name === selectedBaseFolder);
+    return folder?.preserveQualityInfo ?? false;
+  }, [selectedBaseFolder, moviesBaseFolders]);
+
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<{
@@ -118,6 +133,9 @@ export function BatchIdentifyDialog({
     currentFile: string;
     completed: number;
     failed: number;
+    bytesCopied?: number;
+    bytesTotal?: number;
+    bytesPerSecond?: number;
   } | null>(null);
 
   // Checking existing files state
@@ -281,16 +299,22 @@ export function BatchIdentifyDialog({
               const movieName = sanitizeFileName(getDisplayName(autoMatch));
               const year = autoMatch.year || "";
               const ext = fi.file.parsed.extension || "mkv";
-              const qualitySuffix = preserveQualityInfo && fi.file.parsed.qualityInfo ? ` [${fi.file.parsed.qualityInfo}]` : "";
+              const preserveQuality = getPreserveQualityInfo();
+              // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
+              const qualityInfo = fi.file.mediaInfoQuality || fi.file.parsed.qualityInfo;
+              const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
               const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
               const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
 
-              let folderPath: string;
-              if (movieFolderStructure === "year" && year) {
-                folderPath = `${basePath}${year}`;
+              let newPath: string;
+              if (movieFolderStructure === "none") {
+                newPath = `${basePath}${movieFileName}`;
+              } else if (movieFolderStructure === "year" && year) {
+                newPath = `${basePath}${year}/${movieFileName}`;
               } else {
-                folderPath = `${basePath}${movieName}${year ? ` (${year})` : ""}`;
+                const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
+                newPath = `${basePath}${movieFolder}/${movieFileName}`;
               }
 
               return {
@@ -299,7 +323,7 @@ export function BatchIdentifyDialog({
                 searchResults: results,
                 searchError: null,
                 selectedResult: autoMatch,
-                newPath: `${folderPath}/${movieFileName}`,
+                newPath,
                 isExpanded: false, // Collapse since we auto-matched
                 existsAtDestination: undefined, // Will be re-checked
               };
@@ -346,23 +370,28 @@ export function BatchIdentifyDialog({
         const movieName = sanitizeFileName(getDisplayName(result));
         const year = result.year || "";
         const ext = fi.file.parsed.extension || "mkv";
-        const qualitySuffix = preserveQualityInfo && fi.file.parsed.qualityInfo ? ` [${fi.file.parsed.qualityInfo}]` : "";
+        const preserveQuality = getPreserveQualityInfo();
+        // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
+        const qualityInfo = fi.file.mediaInfoQuality || fi.file.parsed.qualityInfo;
+        const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
         const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
         const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
 
-        let folderPath: string;
-        if (movieFolderStructure === "year" && year) {
-          folderPath = `${basePath}${year}/${movieFileName}`;
+        let newPath: string;
+        if (movieFolderStructure === "none") {
+          newPath = `${basePath}${movieFileName}`;
+        } else if (movieFolderStructure === "year" && year) {
+          newPath = `${basePath}${year}/${movieFileName}`;
         } else {
           const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
-          folderPath = `${basePath}${movieFolder}/${movieFileName}`;
+          newPath = `${basePath}${movieFolder}/${movieFileName}`;
         }
 
         return {
           ...fi,
           selectedResult: result,
-          newPath: folderPath,
+          newPath,
           existsAtDestination: undefined, // Reset to trigger recheck
         };
       })
@@ -403,6 +432,7 @@ export function BatchIdentifyDialog({
 
   // Regenerate paths when base folder changes
   useEffect(() => {
+    const preserveQuality = getPreserveQualityInfo();
     setFileIdentifications((prev) =>
       prev.map((fi) => {
         if (!fi.selectedResult) return fi;
@@ -410,27 +440,31 @@ export function BatchIdentifyDialog({
         const movieName = sanitizeFileName(getDisplayName(fi.selectedResult));
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
-        const qualitySuffix = preserveQualityInfo && fi.file.parsed.qualityInfo ? ` [${fi.file.parsed.qualityInfo}]` : "";
+        // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
+        const qualityInfo = fi.file.mediaInfoQuality || fi.file.parsed.qualityInfo;
+        const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
         const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
 
         const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
 
-        let folderPath: string;
-        if (movieFolderStructure === "year" && year) {
-          folderPath = `${basePath}${year}/${movieFileName}`;
+        let newPath: string;
+        if (movieFolderStructure === "none") {
+          newPath = `${basePath}${movieFileName}`;
+        } else if (movieFolderStructure === "year" && year) {
+          newPath = `${basePath}${year}/${movieFileName}`;
         } else {
           const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
-          folderPath = `${basePath}${movieFolder}/${movieFileName}`;
+          newPath = `${basePath}${movieFolder}/${movieFileName}`;
         }
 
         return {
           ...fi,
-          newPath: folderPath,
+          newPath,
           existsAtDestination: undefined, // Reset to trigger recheck
         };
       })
     );
-  }, [selectedBaseFolder, movieFolderStructure, preserveQualityInfo]);
+  }, [selectedBaseFolder, movieFolderStructure, getPreserveQualityInfo]);
 
   const handleConfirm = useCallback(async () => {
     const validIdentifications = fileIdentifications.filter(
@@ -481,13 +515,16 @@ export function BatchIdentifyDialog({
             try {
               const data = JSON.parse(line.slice(6));
 
-              if (data.type === "progress") {
+              if (data.type === "progress" || data.type === "file_progress") {
                 setProgress({
                   current: data.current,
                   total: data.total,
                   currentFile: data.currentFile || "",
                   completed: data.completed,
                   failed: data.failed,
+                  bytesCopied: data.bytesCopied,
+                  bytesTotal: data.bytesTotal,
+                  bytesPerSecond: data.bytesPerSecond,
                 });
               } else if (data.type === "complete") {
                 if (data.completed > 0) {
@@ -554,6 +591,47 @@ export function BatchIdentifyDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Mobile progress bar - shown at top, outside scrollable area */}
+        {isMobile && progress && (
+          <div className="shrink-0 space-y-2 py-2 border-b bg-background">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-muted-foreground">
+                  {operation === "copy" ? (language === "it" ? "Copiando" : "Copying") : (language === "it" ? "Spostando" : "Moving")}...
+                </span>
+              </div>
+              <span className="font-medium">
+                {progress.current} / {progress.total}
+              </span>
+            </div>
+            <Progress value={(progress.current / progress.total) * 100} className="h-1.5" />
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span className="truncate max-w-[50%]">{progress.currentFile}</span>
+              {progress.bytesPerSecond !== undefined && progress.bytesPerSecond > 0 && (
+                <span className="shrink-0">{formatBytes(progress.bytesPerSecond)}/s</span>
+              )}
+            </div>
+            {/* Byte progress (compact) */}
+            {progress.bytesTotal !== undefined && progress.bytesTotal > 0 && (
+              <div className="flex items-center gap-2">
+                <Progress
+                  value={(progress.bytesCopied ?? 0) / progress.bytesTotal * 100}
+                  className="h-1 flex-1"
+                />
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {Math.round((progress.bytesCopied ?? 0) / progress.bytesTotal * 100)}%
+                </span>
+              </div>
+            )}
+            {progress.failed > 0 && (
+              <p className="text-xs text-destructive">
+                {progress.failed} {language === "it" ? "falliti" : "failed"}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex-1 min-h-0 flex flex-col space-y-2 sm:space-y-3 py-1 sm:py-2 overflow-y-auto">
           {/* Scanning state */}
           {isScanning && (
@@ -596,8 +674,8 @@ export function BatchIdentifyDialog({
                     {language === "it" ? "(Radice Media)" : "(Media Root)"}
                   </SelectItem>
                   {moviesBaseFolders.map((folder) => (
-                    <SelectItem key={folder} value={folder}>
-                      {folder}
+                    <SelectItem key={folder.name} value={folder.name}>
+                      {folder.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -705,10 +783,17 @@ export function BatchIdentifyDialog({
                             </Tooltip>
                           )}
                           {fi.selectedResult && !fi.skipped && (
-                            <p className="text-[10px] sm:text-xs text-green-600 dark:text-green-400 truncate">
-                              → {getDisplayName(fi.selectedResult)}
-                              {fi.selectedResult.year && ` (${fi.selectedResult.year})`}
-                            </p>
+                            <>
+                              <p className="text-[10px] sm:text-xs text-green-600 dark:text-green-400 truncate">
+                                → {getDisplayName(fi.selectedResult)}
+                                {fi.selectedResult.year && ` (${fi.selectedResult.year})`}
+                              </p>
+                              {fi.newPath && (
+                                <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                                  {fi.newPath}
+                                </p>
+                              )}
+                            </>
                           )}
                           {fi.existsAtDestination && !fi.overwrite && !fi.skipped && (
                             <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">
@@ -781,6 +866,13 @@ export function BatchIdentifyDialog({
                           {/* Search results */}
                           {fi.searchError && (
                             <p className="text-xs text-destructive">{fi.searchError}</p>
+                          )}
+
+                          {fi.isSearching && fi.searchResults.length === 0 && (
+                            <div className="p-3 flex items-center justify-center gap-2 text-muted-foreground border rounded-md">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="text-xs">{language === "it" ? "Ricerca in corso..." : "Searching..."}</span>
+                            </div>
                           )}
 
                           {fi.searchResults.length > 0 && (
@@ -901,18 +993,18 @@ export function BatchIdentifyDialog({
             </div>
           )}
 
-          {/* Progress bar during operation */}
-          {progress && (
+          {/* Progress bar during operation - desktop only (mobile has fixed progress at top) */}
+          {!isMobile && progress && (
             <div className="space-y-1 sm:space-y-2 py-1 sm:py-2 shrink-0">
               <div className="flex items-center justify-between text-xs sm:text-sm">
                 <span className="text-muted-foreground">
                   {operation === "copy"
                     ? language === "it"
-                      ? "Copia..."
-                      : "Copying..."
+                      ? "Copiando file..."
+                      : "Copying files..."
                     : language === "it"
-                    ? "Sposta..."
-                    : "Moving..."}
+                    ? "Spostando file..."
+                    : "Moving files..."}
                 </span>
                 <span className="font-medium">
                   {progress.current} / {progress.total}
@@ -922,6 +1014,28 @@ export function BatchIdentifyDialog({
               <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
                 {progress.currentFile}
               </p>
+              {/* Byte-level progress for current file */}
+              {progress.bytesTotal !== undefined && progress.bytesTotal > 0 && (
+                <div className="space-y-1">
+                  <Progress
+                    value={(progress.bytesCopied ?? 0) / progress.bytesTotal * 100}
+                    className="h-1"
+                  />
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">
+                    {formatBytes(progress.bytesCopied ?? 0)} / {formatBytes(progress.bytesTotal)}
+                    {progress.bytesTotal > 0 && (
+                      <span className="ml-2">
+                        ({Math.round((progress.bytesCopied ?? 0) / progress.bytesTotal * 100)}%)
+                      </span>
+                    )}
+                    {progress.bytesPerSecond !== undefined && progress.bytesPerSecond > 0 && (
+                      <span className="ml-2">
+                        • {formatBytes(progress.bytesPerSecond)}/s
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
               {progress.failed > 0 && (
                 <p className="text-[10px] sm:text-xs text-destructive">
                   {progress.failed} {language === "it" ? "falliti" : "failed"}

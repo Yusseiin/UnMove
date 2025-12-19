@@ -32,8 +32,9 @@ RUN pnpm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 
-# Install shadow for usermod/groupmod and su-exec for running as different user (needed for PUID/PGID on Unraid)
-RUN apk add --no-cache shadow su-exec
+# Install shadow for usermod/groupmod, su-exec for running as different user (needed for PUID/PGID on Unraid),
+# and ffmpeg for media info extraction (codec detection)
+RUN apk add --no-cache shadow su-exec ffmpeg
 
 ENV NODE_ENV=production
 

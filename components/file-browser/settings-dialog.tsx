@@ -21,21 +21,19 @@ import {
 } from "@/components/ui/select";
 import { Plus, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Language, MovieFolderStructure } from "@/types/config";
+import type { Language, MovieFolderStructure, BaseFolder } from "@/types/config";
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   language: Language;
   onLanguageChange: (language: Language) => void;
-  seriesBaseFolders: string[];
-  onSeriesBaseFoldersChange: (folders: string[]) => void;
-  moviesBaseFolders: string[];
-  onMoviesBaseFoldersChange: (folders: string[]) => void;
+  seriesBaseFolders: BaseFolder[];
+  onSeriesBaseFoldersChange: (folders: BaseFolder[]) => void;
+  moviesBaseFolders: BaseFolder[];
+  onMoviesBaseFoldersChange: (folders: BaseFolder[]) => void;
   movieFolderStructure: MovieFolderStructure;
   onMovieFolderStructureChange: (structure: MovieFolderStructure) => void;
-  preserveQualityInfo: boolean;
-  onPreserveQualityInfoChange: (preserve: boolean) => void;
   isLoading?: boolean;
 }
 
@@ -50,8 +48,6 @@ export function SettingsDialog({
   onMoviesBaseFoldersChange,
   movieFolderStructure,
   onMovieFolderStructureChange,
-  preserveQualityInfo,
-  onPreserveQualityInfoChange,
   isLoading,
 }: SettingsDialogProps) {
   const [newSeriesFolder, setNewSeriesFolder] = useState("");
@@ -59,26 +55,38 @@ export function SettingsDialog({
 
   const addSeriesFolder = () => {
     const trimmed = newSeriesFolder.trim();
-    if (trimmed && !seriesBaseFolders.includes(trimmed)) {
-      onSeriesBaseFoldersChange([...seriesBaseFolders, trimmed]);
+    if (trimmed && !seriesBaseFolders.some(f => f.name === trimmed)) {
+      onSeriesBaseFoldersChange([...seriesBaseFolders, { name: trimmed, preserveQualityInfo: false }]);
       setNewSeriesFolder("");
     }
   };
 
-  const removeSeriesFolder = (folder: string) => {
-    onSeriesBaseFoldersChange(seriesBaseFolders.filter(f => f !== folder));
+  const removeSeriesFolder = (folderName: string) => {
+    onSeriesBaseFoldersChange(seriesBaseFolders.filter(f => f.name !== folderName));
+  };
+
+  const toggleSeriesFolderQuality = (folderName: string, preserve: boolean) => {
+    onSeriesBaseFoldersChange(
+      seriesBaseFolders.map(f => f.name === folderName ? { ...f, preserveQualityInfo: preserve } : f)
+    );
   };
 
   const addMoviesFolder = () => {
     const trimmed = newMoviesFolder.trim();
-    if (trimmed && !moviesBaseFolders.includes(trimmed)) {
-      onMoviesBaseFoldersChange([...moviesBaseFolders, trimmed]);
+    if (trimmed && !moviesBaseFolders.some(f => f.name === trimmed)) {
+      onMoviesBaseFoldersChange([...moviesBaseFolders, { name: trimmed, preserveQualityInfo: false }]);
       setNewMoviesFolder("");
     }
   };
 
-  const removeMoviesFolder = (folder: string) => {
-    onMoviesBaseFoldersChange(moviesBaseFolders.filter(f => f !== folder));
+  const removeMoviesFolder = (folderName: string) => {
+    onMoviesBaseFoldersChange(moviesBaseFolders.filter(f => f.name !== folderName));
+  };
+
+  const toggleMoviesFolderQuality = (folderName: string, preserve: boolean) => {
+    onMoviesBaseFoldersChange(
+      moviesBaseFolders.map(f => f.name === folderName ? { ...f, preserveQualityInfo: preserve } : f)
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, addFn: () => void) => {
@@ -140,21 +148,34 @@ export function SettingsDialog({
 
             {/* Existing folders */}
             {seriesBaseFolders.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2">
                 {seriesBaseFolders.map((folder) => (
                   <div
-                    key={folder}
-                    className="flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-sm"
+                    key={folder.name}
+                    className="flex items-center justify-between gap-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-md text-sm"
                   >
-                    <span>{folder}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeSeriesFolder(folder)}
-                      className="hover:text-destructive"
-                      disabled={isLoading}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="truncate">{folder.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={folder.preserveQualityInfo}
+                          onCheckedChange={(checked) => toggleSeriesFolderQuality(folder.name, checked === true)}
+                          disabled={isLoading}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span>{language === "it" ? "Qualità" : "Quality"}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeSeriesFolder(folder.name)}
+                        className="hover:text-destructive"
+                        disabled={isLoading}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -195,21 +216,34 @@ export function SettingsDialog({
 
             {/* Existing folders */}
             {moviesBaseFolders.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2">
                 {moviesBaseFolders.map((folder) => (
                   <div
-                    key={folder}
-                    className="flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-1 rounded-md text-sm"
+                    key={folder.name}
+                    className="flex items-center justify-between gap-2 bg-secondary text-secondary-foreground px-3 py-2 rounded-md text-sm"
                   >
-                    <span>{folder}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeMoviesFolder(folder)}
-                      className="hover:text-destructive"
-                      disabled={isLoading}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="truncate">{folder.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={folder.preserveQualityInfo}
+                          onCheckedChange={(checked) => toggleMoviesFolderQuality(folder.name, checked === true)}
+                          disabled={isLoading}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span>{language === "it" ? "Qualità" : "Quality"}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeMoviesFolder(folder.name)}
+                        className="hover:text-destructive"
+                        disabled={isLoading}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -276,28 +310,18 @@ export function SettingsDialog({
                     </span>
                   </div>
                 </SelectItem>
+                <SelectItem value="none">
+                  <div className="flex flex-col items-start">
+                    <span>{language === "it" ? "Senza cartella" : "No Folder"}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {language === "it"
+                        ? "Film/Nome Film (2025).mkv"
+                        : "Movies/Movie Name (2025).mkv"}
+                    </span>
+                  </div>
+                </SelectItem>
               </SelectContent>
             </Select>
-          </div>
-
-          {/* Preserve quality info */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <Checkbox
-                id="preserve-quality"
-                checked={preserveQualityInfo}
-                onCheckedChange={(checked) => onPreserveQualityInfoChange(checked === true)}
-                disabled={isLoading}
-              />
-              <Label htmlFor="preserve-quality" className="cursor-pointer">
-                {language === "it" ? "Mantieni info qualità" : "Preserve Quality Info"}
-              </Label>
-            </div>
-            <p className="text-xs text-muted-foreground pl-7">
-              {language === "it"
-                ? "Mantiene qualità e codec nel nome del file (es. 1080p.H264)"
-                : "Keep quality and codec in filename (e.g. 1080p.H264)"}
-            </p>
           </div>
         </div>
 
