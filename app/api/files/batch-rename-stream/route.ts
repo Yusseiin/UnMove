@@ -2,7 +2,14 @@ import { NextRequest } from "next/server";
 import fs from "fs/promises";
 import { createReadStream, createWriteStream } from "fs";
 import path from "path";
-import { validatePath, getBasePath } from "@/lib/path-validator";
+import {
+  validatePath,
+  getBasePath,
+  DIR_MODE,
+  FILE_MODE,
+  setDirectoryPermissions,
+  setFilePermissions,
+} from "@/lib/path-validator";
 
 interface FileRename {
   sourcePath: string;
@@ -102,13 +109,7 @@ async function getDirectoryFiles(dirPath: string, basePath: string = ""): Promis
   return files;
 }
 
-// Default permissions for created files and directories
-// 0o775 = rwxrwxr-x for directories
-// 0o664 = rw-rw-r-- for files
-const DIR_MODE = 0o775;
-const FILE_MODE = 0o664;
-
-// Helper function to create directory with proper permissions on ALL created directories
+// Helper function to create directory with proper permissions and ownership on ALL created directories
 // fs.mkdir with recursive:true doesn't reliably set mode on intermediate directories
 async function mkdirWithPermissions(dirPath: string, baseDir: string): Promise<void> {
   const normalizedDir = path.resolve(dirPath);
@@ -119,10 +120,11 @@ async function mkdirWithPermissions(dirPath: string, baseDir: string): Promise<v
   if (!relativePath || relativePath.startsWith('..')) {
     // Target is at or above base, just create it
     await fs.mkdir(dirPath, { recursive: true, mode: DIR_MODE });
+    await setDirectoryPermissions(dirPath);
     return;
   }
 
-  // Split into parts and create each directory with proper permissions
+  // Split into parts and create each directory with proper permissions and ownership
   const parts = relativePath.split(path.sep);
   let currentPath = normalizedBase;
 
@@ -130,14 +132,11 @@ async function mkdirWithPermissions(dirPath: string, baseDir: string): Promise<v
     currentPath = path.join(currentPath, part);
     try {
       await fs.mkdir(currentPath, { mode: DIR_MODE });
+      await setDirectoryPermissions(currentPath);
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-        // Directory exists, ensure permissions are correct
-        try {
-          await fs.chmod(currentPath, DIR_MODE);
-        } catch {
-          // Ignore chmod errors (might not have permission to change)
-        }
+        // Directory exists, ensure permissions and ownership are correct
+        await setDirectoryPermissions(currentPath);
       } else {
         throw err;
       }
@@ -175,8 +174,8 @@ async function copyDirectoryWithProgress(
       onProgress(overallCopied, totalBytes);
     });
 
-    // Set file permissions after copy
-    await fs.chmod(destPath, FILE_MODE);
+    // Set file permissions and ownership after copy
+    await setFilePermissions(destPath);
 
     totalBytesCopied += file.size;
   }
@@ -488,14 +487,10 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Set proper file permissions (for Unraid/Docker compatibility)
-            // Use FILE_MODE (0o664 = rw-rw-r--) for files, directories already handled with DIR_MODE
+            // Set proper file permissions and ownership (for Unraid/Docker compatibility)
+            // Use setFilePermissions for files, directories already handled by mkdirWithPermissions
             if (!isDirectory) {
-              try {
-                await fs.chmod(destFull, FILE_MODE);
-              } catch {
-                // Ignore permission errors (might not be supported on all systems)
-              }
+              await setFilePermissions(destFull);
             }
 
             completed++;

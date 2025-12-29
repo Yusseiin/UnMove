@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
-import { getBasePath, validatePath } from "@/lib/path-validator";
+import { getBasePath, validatePath, setDirectoryPermissions, DIR_MODE } from "@/lib/path-validator";
 import type { CreateFolderRequest, OperationResponse } from "@/types/files";
 
 export async function POST(request: NextRequest) {
@@ -60,8 +60,9 @@ export async function POST(request: NextRequest) {
       // Folder doesn't exist, which is what we want
     }
 
-    // Create the folder with proper permissions (rwxrwxr-x)
-    await fs.mkdir(newFolderPath, { mode: 0o775 });
+    // Create the folder with proper permissions (rwxrwxr-x) and ownership
+    await fs.mkdir(newFolderPath, { mode: DIR_MODE });
+    await setDirectoryPermissions(newFolderPath);
 
     return NextResponse.json<OperationResponse>({
       success: true,

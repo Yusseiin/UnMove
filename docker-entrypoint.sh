@@ -4,6 +4,9 @@
 PUID=${PUID:-99}
 PGID=${PGID:-100}
 
+# Set umask to allow full permissions (000 = no restrictions, chmod will set actual permissions)
+umask 000
+
 echo "Starting with UID: $PUID, GID: $PGID"
 
 # Check if a group with this GID already exists
@@ -36,6 +39,10 @@ fi
 
 # Change ownership of app directory
 chown -R "$PUID:$PGID" /app
+
+# Export PUID/PGID so Node.js can use them for chown operations
+export PUID
+export PGID
 
 # Execute the main command as the user
 exec su-exec "$USER_NAME" "$@"

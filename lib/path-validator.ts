@@ -2,6 +2,59 @@ import path from "path";
 import fs from "fs/promises";
 import type { PaneType } from "@/types/files";
 
+// Default permissions for created files and directories
+// 0o777 = rwxrwxrwx for directories
+// 0o666 = rw-rw-rw- for files
+export const DIR_MODE = 0o777;
+export const FILE_MODE = 0o666;
+
+// Get PUID/PGID from environment (set by docker-entrypoint.sh)
+export function getOwnership(): { uid: number; gid: number } | null {
+  const puid = process.env.PUID;
+  const pgid = process.env.PGID;
+
+  if (puid && pgid) {
+    const uid = parseInt(puid, 10);
+    const gid = parseInt(pgid, 10);
+    if (!isNaN(uid) && !isNaN(gid)) {
+      return { uid, gid };
+    }
+  }
+  return null;
+}
+
+// Set proper ownership on a file/directory (for Unraid/Docker compatibility)
+export async function setOwnership(filePath: string): Promise<void> {
+  const ownership = getOwnership();
+  if (ownership) {
+    try {
+      await fs.chown(filePath, ownership.uid, ownership.gid);
+    } catch {
+      // Ignore chown errors (might not have permission or not supported on Windows)
+    }
+  }
+}
+
+// Set proper permissions on a directory
+export async function setDirectoryPermissions(dirPath: string): Promise<void> {
+  try {
+    await fs.chmod(dirPath, DIR_MODE);
+    await setOwnership(dirPath);
+  } catch {
+    // Ignore permission errors
+  }
+}
+
+// Set proper permissions on a file
+export async function setFilePermissions(filePath: string): Promise<void> {
+  try {
+    await fs.chmod(filePath, FILE_MODE);
+    await setOwnership(filePath);
+  } catch {
+    // Ignore permission errors
+  }
+}
+
 export function getBasePath(pane: PaneType): string {
   const basePath =
     pane === "downloads"
