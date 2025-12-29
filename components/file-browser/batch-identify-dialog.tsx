@@ -316,7 +316,7 @@ export function BatchIdentifyDialog({
 
             // If we found an auto-match, select it automatically
             if (autoMatch) {
-              const movieName = sanitizeFileName(getDisplayName(autoMatch));
+              const movieName = sanitizeFileName(getDisplayName(autoMatch, language));
               const year = autoMatch.year || "";
               const ext = fi.file.parsed.extension || "mkv";
               const preserveQuality = getPreserveQualityInfo();
@@ -387,7 +387,7 @@ export function BatchIdentifyDialog({
       prev.map((fi, i) => {
         if (i !== fileIndex) return fi;
 
-        const movieName = sanitizeFileName(getDisplayName(result));
+        const movieName = sanitizeFileName(getDisplayName(result, language));
         const year = result.year || "";
         const ext = fi.file.parsed.extension || "mkv";
         const preserveQuality = getPreserveQualityInfo();
@@ -457,7 +457,7 @@ export function BatchIdentifyDialog({
       prev.map((fi) => {
         if (!fi.selectedResult) return fi;
 
-        const movieName = sanitizeFileName(getDisplayName(fi.selectedResult));
+        const movieName = sanitizeFileName(getDisplayName(fi.selectedResult, language));
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
         // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
@@ -805,7 +805,7 @@ export function BatchIdentifyDialog({
                           {fi.selectedResult && !fi.skipped && (
                             <>
                               <p className="text-[10px] sm:text-xs text-green-600 dark:text-green-400 truncate">
-                                → {getDisplayName(fi.selectedResult)}
+                                → {getDisplayName(fi.selectedResult, language)}
                                 {fi.selectedResult.year && ` (${fi.selectedResult.year})`}
                               </p>
                               {fi.newPath && (

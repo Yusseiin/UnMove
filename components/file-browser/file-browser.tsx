@@ -528,6 +528,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onConfirm={handleConfirmTransfer}
         onCreateFolder={handleCreateFolder}
         isLoading={isOperationLoading}
+        initialPath={transferDestination}
       />
 
       <TransferConfirmDialog

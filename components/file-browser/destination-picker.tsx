@@ -22,6 +22,7 @@ interface DestinationPickerProps {
   onConfirm: (destinationPath: string) => void;
   onCreateFolder: (parentPath: string) => void;
   isLoading?: boolean;
+  initialPath?: string; // Initial path to open the picker at (e.g., current media folder)
 }
 
 export function DestinationPicker({
@@ -32,6 +33,7 @@ export function DestinationPicker({
   onConfirm,
   onCreateFolder,
   isLoading,
+  initialPath = "/",
 }: DestinationPickerProps) {
   const [currentPath, setCurrentPath] = useState("/");
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -65,9 +67,10 @@ export function DestinationPicker({
 
   useEffect(() => {
     if (open) {
-      fetchFiles("/");
+      // Start at the initial path (e.g., current media folder) instead of root
+      fetchFiles(initialPath || "/");
     }
-  }, [open, fetchFiles]);
+  }, [open, fetchFiles, initialPath]);
 
   const handleNavigate = (path: string) => {
     fetchFiles(path);

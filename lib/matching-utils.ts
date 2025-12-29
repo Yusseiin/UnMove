@@ -103,9 +103,20 @@ export function findAutoMatch(
 }
 
 /**
- * Get the display name for a TVDB result (prefer translated name over original)
+ * Get the display name for a TVDB result
+ * @param result - The TVDB search result
+ * @param language - Optional language preference. If "it", prefers Italian name.
+ *                   If "en" or undefined, prefers English name.
+ * @returns The appropriate name based on language preference
  */
-export function getDisplayName(result: TVDBSearchResult | null): string {
+export function getDisplayName(result: TVDBSearchResult | null, language?: string): string {
   if (!result) return "";
-  return result.name_translated || result.name;
+
+  if (language === "it") {
+    // For Italian: prefer translated name (which is Italian when lang=it)
+    return result.name_translated || result.name;
+  }
+
+  // For English or default: prefer English name, then original
+  return result.name_english || result.name;
 }

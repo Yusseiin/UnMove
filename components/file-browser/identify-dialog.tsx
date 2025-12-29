@@ -421,7 +421,7 @@ export function IdentifyDialog({
 
     // For movies, just use the first file and rename it directly
     const file = scannedFiles[0];
-    const movieName = sanitizeFileName(getDisplayName(selectedResult));
+    const movieName = sanitizeFileName(getDisplayName(selectedResult, language));
     const year = selectedResult.year || "";
     const ext = file.parsed.extension || "mkv";
 
@@ -459,8 +459,8 @@ export function IdentifyDialog({
   const createFileMappings = () => {
     if (!selectedResult || episodes.length === 0) return;
 
-    // Get sanitized series name (prefer English translation)
-    const seriesName = sanitizeFileName(getDisplayName(selectedResult));
+    // Get sanitized series name based on language preference
+    const seriesName = sanitizeFileName(getDisplayName(selectedResult, language));
     const seriesYear = selectedResult.year || "";
     const seriesFolder = `${seriesName}${seriesYear ? ` (${seriesYear})` : ""}`;
 
@@ -624,8 +624,8 @@ export function IdentifyDialog({
       return;
     }
 
-    // Get sanitized series name (prefer English translation)
-    const seriesName = sanitizeFileName(getDisplayName(selectedResult));
+    // Get sanitized series name based on language preference
+    const seriesName = sanitizeFileName(getDisplayName(selectedResult, language));
     const seriesYear = selectedResult.year || "";
     const seriesFolder = `${seriesName}${seriesYear ? ` (${seriesYear})` : ""}`;
     const seasonFolder = editingSeason === 0 ? strings.specials : `${strings.season} ${formatSeason(editingSeason)}`;
@@ -1083,7 +1083,7 @@ export function IdentifyDialog({
                 <p className="text-xs text-muted-foreground">
                   {language === "it" ? "Destinazione:" : "Destination:"}{" "}
                   {selectedBaseFolder ? `${selectedBaseFolder}/` : ""}
-                  {sanitizeFileName(getDisplayName(selectedResult))}
+                  {sanitizeFileName(getDisplayName(selectedResult, language))}
                   {selectedResult.year ? ` (${selectedResult.year})` : ""}
                   {selectedResult.type === "series" ? "/..." : ""}
                 </p>
