@@ -1,4 +1,6 @@
 import type { ParsedFileName } from "@/types/tvdb";
+import type { SeriesNamingTemplate, MovieNamingTemplate } from "@/types/config";
+import { defaultSeriesNamingTemplate, defaultMovieNamingTemplate } from "@/types/config";
 
 // Quality indicators
 const QUALITY_PATTERNS = [
@@ -495,4 +497,194 @@ export function generateMoviePath(
   }
   const fileName = generateMovieFileName(movieName, year, extension);
   return `${folderName}/${fileName}`;
+}
+
+// ============================================================================
+// TEMPLATE-BASED NAMING FUNCTIONS
+// ============================================================================
+
+// Resolution patterns (quality)
+const RESOLUTION_PATTERNS = [
+  "2160p", "4k", "uhd", "1080p", "1080i", "720p", "576p", "480p", "360p",
+  "fullhd", "full-hd", "hd", "sd"
+];
+
+// Video codec patterns
+const CODEC_PATTERNS = [
+  "x264", "x265", "h264", "h265", "h.264", "h.265", "hevc", "avc", "xvid", "divx",
+  "av1", "vp9", "mpeg2", "mpeg4"
+];
+
+/**
+ * Split a qualityInfo string (e.g., "1080p.H264") into separate quality and codec
+ */
+export function splitQualityInfo(qualityInfo: string | undefined): { quality: string; codec: string } {
+  if (!qualityInfo) {
+    return { quality: "", codec: "" };
+  }
+
+  // Split by common separators
+  const parts = qualityInfo.split(/[.\s_-]+/);
+
+  let quality = "";
+  let codec = "";
+
+  for (const part of parts) {
+    const lowerPart = part.toLowerCase();
+
+    // Check if it's a resolution/quality
+    if (!quality && RESOLUTION_PATTERNS.some(p => lowerPart === p || lowerPart === p.replace("-", ""))) {
+      quality = part;
+    }
+    // Check if it's a codec
+    else if (!codec && CODEC_PATTERNS.some(p => lowerPart === p || lowerPart === p.replace(".", ""))) {
+      // Normalize codec format (H.264 -> H264, h265 -> H265)
+      codec = part.replace(/\./g, "").toUpperCase();
+      // Normalize x264/x265 to H264/H265 style
+      if (codec.startsWith("X")) {
+        codec = "H" + codec.slice(1);
+      }
+    }
+  }
+
+  return { quality, codec };
+}
+
+/**
+ * Data for series episode template
+ */
+export interface SeriesTemplateData {
+  seriesName: string;
+  seriesYear?: string;
+  season: number;
+  episode: number;
+  episodeTitle?: string;
+  quality?: string;  // Resolution (e.g., "1080p", "4K")
+  codec?: string;    // Video codec (e.g., "H264", "HEVC")
+  extension: string;
+}
+
+/**
+ * Data for movie template
+ */
+export interface MovieTemplateData {
+  movieName: string;
+  year?: string;
+  quality?: string;  // Resolution (e.g., "1080p", "4K")
+  codec?: string;    // Video codec (e.g., "H264", "HEVC")
+  extension: string;
+}
+
+/**
+ * Apply a series naming template to generate folder and filename
+ */
+export function applySeriesTemplate(
+  template: SeriesNamingTemplate | undefined,
+  data: SeriesTemplateData
+): { seriesFolder: string; seasonFolder: string; fileName: string; fullPath: string } {
+  const t = template || defaultSeriesNamingTemplate;
+
+  // Pad numbers according to template settings
+  const seasonPadded = data.season.toString().padStart(t.seasonPadding, "0");
+  const episodePadded = data.episode.toString().padStart(t.episodePadding, "0");
+
+  // Sanitize inputs
+  const seriesName = sanitizeFileName(data.seriesName);
+  const seriesYear = data.seriesYear || "";
+  const episodeTitle = data.episodeTitle ? sanitizeFileName(data.episodeTitle) : "";
+  const quality = data.quality || "";
+  const codec = data.codec || "";
+
+  // Helper to replace tokens in a string
+  const replaceTokens = (str: string): string => {
+    return str
+      .replace(/\{seriesName\}/g, seriesName)
+      .replace(/\{seriesYear\}/g, seriesYear)
+      .replace(/\{season\}/g, seasonPadded)
+      .replace(/\{episode\}/g, episodePadded)
+      .replace(/\{episodeTitle\}/g, episodeTitle)
+      .replace(/\{quality\}/g, quality)
+      .replace(/\{codec\}/g, codec)
+      // Clean up empty parentheses/brackets from missing values
+      .replace(/\s*\(\s*\)/g, "")
+      .replace(/\s*\[\s*\]/g, "")
+      .replace(/\s+-\s*$/g, "") // Remove trailing " -"
+      .replace(/^\s*-\s+/g, "") // Remove leading "- "
+      .trim();
+  };
+
+  // Generate series folder
+  const seriesFolder = replaceTokens(t.folderTemplate);
+
+  // Generate season folder
+  const seasonFolder = data.season === 0
+    ? replaceTokens(t.specialsFolderTemplate)
+    : replaceTokens(t.seasonFolderTemplate);
+
+  // Generate filename (without extension)
+  const fileNameWithoutExt = replaceTokens(t.fileTemplate);
+  const fileName = `${fileNameWithoutExt}.${data.extension}`;
+
+  // Generate full path
+  const fullPath = `${seriesFolder}/${seasonFolder}/${fileName}`;
+
+  return { seriesFolder, seasonFolder, fileName, fullPath };
+}
+
+/**
+ * Apply a movie naming template to generate folder and filename
+ */
+export function applyMovieTemplate(
+  template: MovieNamingTemplate | undefined,
+  data: MovieTemplateData
+): { folder: string; fileName: string; fullPath: string } {
+  const t = template || defaultMovieNamingTemplate;
+
+  // Sanitize inputs
+  const movieName = sanitizeFileName(data.movieName);
+  const year = data.year || "";
+  const quality = data.quality || "";
+  const codec = data.codec || "";
+
+  // Helper to replace tokens in a string
+  const replaceTokens = (str: string): string => {
+    return str
+      .replace(/\{movieName\}/g, movieName)
+      .replace(/\{year\}/g, year)
+      .replace(/\{quality\}/g, quality)
+      .replace(/\{codec\}/g, codec)
+      // Clean up empty parentheses/brackets from missing values
+      .replace(/\s*\(\s*\)/g, "")
+      .replace(/\s*\[\s*\]/g, "")
+      .replace(/\s+-\s*$/g, "") // Remove trailing " -"
+      .replace(/^\s*-\s+/g, "") // Remove leading "- "
+      .trim();
+  };
+
+  // Generate filename (without extension)
+  const fileNameWithoutExt = replaceTokens(t.fileTemplate);
+  const fileName = `${fileNameWithoutExt}.${data.extension}`;
+
+  // Generate folder based on folderStructure setting
+  let folder = "";
+  switch (t.folderStructure) {
+    case "year":
+      // Use year as folder
+      folder = year;
+      break;
+    case "name":
+      // Use folder template
+      folder = replaceTokens(t.folderTemplate);
+      break;
+    case "none":
+    default:
+      // No subfolder
+      folder = "";
+      break;
+  }
+
+  // Generate full path
+  const fullPath = folder ? `${folder}/${fileName}` : fileName;
+
+  return { folder, fileName, fullPath };
 }

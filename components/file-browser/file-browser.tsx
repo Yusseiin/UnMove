@@ -575,7 +575,8 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         language={config.language}
         seriesBaseFolders={config.seriesBaseFolders}
         moviesBaseFolders={config.moviesBaseFolders}
-        movieFolderStructure={config.movieFolderStructure}
+        seriesNamingTemplate={config.seriesNamingTemplate}
+        movieNamingTemplate={config.movieNamingTemplate}
       />
 
       <BatchIdentifyDialog
@@ -587,7 +588,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         isLoading={isOperationLoading}
         language={config.language}
         moviesBaseFolders={config.moviesBaseFolders}
-        movieFolderStructure={config.movieFolderStructure}
+        movieNamingTemplate={config.movieNamingTemplate}
       />
 
       <SettingsDialog
@@ -599,8 +600,10 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onSeriesBaseFoldersChange={(folders) => updateConfig({ seriesBaseFolders: folders })}
         moviesBaseFolders={config.moviesBaseFolders}
         onMoviesBaseFoldersChange={(folders) => updateConfig({ moviesBaseFolders: folders })}
-        movieFolderStructure={config.movieFolderStructure}
-        onMovieFolderStructureChange={(structure) => updateConfig({ movieFolderStructure: structure })}
+        seriesNamingTemplate={config.seriesNamingTemplate}
+        onSeriesNamingTemplateChange={(template) => updateConfig({ seriesNamingTemplate: template })}
+        movieNamingTemplate={config.movieNamingTemplate}
+        onMovieNamingTemplateChange={(template) => updateConfig({ movieNamingTemplate: template })}
         isLoading={configLoading}
       />
     </div>

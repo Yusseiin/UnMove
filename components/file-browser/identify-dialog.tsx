@@ -30,7 +30,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import Image from "next/image";
-import { generateEpisodeFileName, formatSeason, sanitizeFileName } from "@/lib/filename-parser";
+import {
+  formatSeason,
+  sanitizeFileName,
+  applySeriesTemplate,
+  applyMovieTemplate,
+  splitQualityInfo,
+} from "@/lib/filename-parser";
 import {
   normalizeForComparison,
   calculateSimilarity,
@@ -43,7 +49,12 @@ import type {
   ParsedFileName,
   TVDBApiResponse,
 } from "@/types/tvdb";
-import type { Language, MovieFolderStructure, BaseFolder } from "@/types/config";
+import type {
+  Language,
+  BaseFolder,
+  SeriesNamingTemplate,
+  MovieNamingTemplate,
+} from "@/types/config";
 import { getLocalizedStrings } from "@/types/config";
 
 // Helper function to format bytes as human-readable string
@@ -85,7 +96,9 @@ interface IdentifyDialogProps {
   language?: Language;
   seriesBaseFolders?: BaseFolder[];
   moviesBaseFolders?: BaseFolder[];
-  movieFolderStructure?: MovieFolderStructure; // "year" = Year/Movie, "name" = Movie Name/Movie
+  // Global naming templates (used when folder doesn't have override)
+  seriesNamingTemplate?: SeriesNamingTemplate;
+  movieNamingTemplate?: MovieNamingTemplate;
 }
 
 export function IdentifyDialog({
@@ -100,7 +113,8 @@ export function IdentifyDialog({
   language = "en",
   seriesBaseFolders = [],
   moviesBaseFolders = [],
-  movieFolderStructure = "name",
+  seriesNamingTemplate,
+  movieNamingTemplate,
 }: IdentifyDialogProps) {
   const isMobile = useIsMobile();
   // Get localized strings based on language
@@ -159,14 +173,6 @@ export function IdentifyDialog({
   // Selected base folder for series/movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
 
-  // Get the preserveQualityInfo setting from the selected folder
-  const getPreserveQualityInfo = useCallback(() => {
-    if (!selectedBaseFolder || !selectedResult) return false;
-    const folders = selectedResult.type === "series" ? seriesBaseFolders : moviesBaseFolders;
-    const folder = folders.find(f => f.name === selectedBaseFolder);
-    return folder?.preserveQualityInfo ?? false;
-  }, [selectedBaseFolder, selectedResult, seriesBaseFolders, moviesBaseFolders]);
-
   // Get the alwaysUseFFprobe setting from the selected folder
   const getAlwaysUseFFprobe = useCallback(() => {
     if (!selectedBaseFolder || !selectedResult) return false;
@@ -187,6 +193,29 @@ export function IdentifyDialog({
     // Default: prefer filename quality, fallback to ffprobe if filename has no quality info
     return file.parsed.qualityInfo || file.mediaInfoQuality;
   }, [getAlwaysUseFFprobe]);
+
+  // Get the effective series naming template (folder override or global)
+  const getSeriesNamingTemplate = useCallback((): SeriesNamingTemplate | undefined => {
+    if (!selectedBaseFolder) return seriesNamingTemplate;
+    const folder = seriesBaseFolders.find(f => f.name === selectedBaseFolder);
+    return folder?.seriesNamingTemplate || seriesNamingTemplate;
+  }, [selectedBaseFolder, seriesBaseFolders, seriesNamingTemplate]);
+
+  // Get the effective movie naming template (folder override or global)
+  const getMovieNamingTemplate = useCallback((): MovieNamingTemplate | undefined => {
+    if (!selectedBaseFolder) return movieNamingTemplate;
+    const folder = moviesBaseFolders.find(f => f.name === selectedBaseFolder);
+    return folder?.movieNamingTemplate || movieNamingTemplate;
+  }, [selectedBaseFolder, moviesBaseFolders, movieNamingTemplate]);
+
+  // Check if template uses quality/codec tokens
+  const templateUsesQuality = useCallback((template: SeriesNamingTemplate | MovieNamingTemplate | undefined): boolean => {
+    if (!template) return false;
+    const fileTemplate = template.fileTemplate || "";
+    const folderTemplate = template.folderTemplate || "";
+    return fileTemplate.includes("{quality}") || fileTemplate.includes("{codec}") ||
+           folderTemplate.includes("{quality}") || folderTemplate.includes("{codec}");
+  }, []);
 
   // Existing files check state
   const [isCheckingExisting, setIsCheckingExisting] = useState(false);
@@ -254,14 +283,17 @@ export function IdentifyDialog({
     }
   }, [episodes, scannedFiles, selectedResult]);
 
-  // Regenerate mappings when base folder changes
+  // Regenerate mappings when base folder or template changes
+  const seriesTemplateJson = JSON.stringify(seriesNamingTemplate);
+  const movieTemplateJson = JSON.stringify(movieNamingTemplate);
+
   useEffect(() => {
     if (selectedResult?.type === "series" && episodes.length > 0) {
       createFileMappings();
     } else if (selectedResult?.type === "movie" && scannedFiles.length > 0) {
       createMovieMapping();
     }
-  }, [selectedBaseFolder]);
+  }, [selectedBaseFolder, seriesTemplateJson, movieTemplateJson]);
 
   // Check for existing files when mappings change and update each mapping's existsAtDestination flag
   useEffect(() => {
@@ -421,51 +453,50 @@ export function IdentifyDialog({
 
     // For movies, just use the first file and rename it directly
     const file = scannedFiles[0];
-    const movieName = sanitizeFileName(getDisplayName(selectedResult, language));
+    const movieName = getDisplayName(selectedResult, language);
     const year = selectedResult.year || "";
     const ext = file.parsed.extension || "mkv";
 
-    // Build filename with optional quality info (based on selected folder's setting)
-    // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-    const preserveQuality = getPreserveQualityInfo();
-    const qualityInfo = getQualityInfo(file);
-    const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
-    const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
+    // Get the effective naming template for this folder
+    const template = getMovieNamingTemplate();
+
+    // Get quality info if template uses quality/codec tokens
+    const needsQuality = templateUsesQuality(template);
+    const qualityInfo = needsQuality ? getQualityInfo(file) : undefined;
+    const { quality, codec } = splitQualityInfo(qualityInfo);
+
+    // Apply template to generate path
+    const result = applyMovieTemplate(template, {
+      movieName,
+      year,
+      quality,
+      codec,
+      extension: ext,
+    });
 
     // Prepend selected base folder if configured
     const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-
-    // Determine folder structure based on setting
-    let folderPath: string;
-    if (movieFolderStructure === "none") {
-      // No folder: BasePath/Movie Name (2025).mkv
-      folderPath = `${basePath}${movieFileName}`;
-    } else if (movieFolderStructure === "year" && year) {
-      // Year-based: BasePath/2025/Movie Name (2025).mkv
-      folderPath = `${basePath}${year}/${movieFileName}`;
-    } else {
-      // Name-based (default): BasePath/Movie Name (2025)/Movie Name (2025).mkv
-      const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
-      folderPath = `${basePath}${movieFolder}/${movieFileName}`;
-    }
+    const finalPath = `${basePath}${result.fullPath}`;
 
     setFileMappings([{
       file,
       episode: null,
-      newPath: folderPath,
+      newPath: finalPath,
     }]);
   };
 
   const createFileMappings = () => {
     if (!selectedResult || episodes.length === 0) return;
 
-    // Get sanitized series name based on language preference
-    const seriesName = sanitizeFileName(getDisplayName(selectedResult, language));
+    // Get series info
+    const seriesName = getDisplayName(selectedResult, language);
     const seriesYear = selectedResult.year || "";
-    const seriesFolder = `${seriesName}${seriesYear ? ` (${seriesYear})` : ""}`;
 
-    // Get preserveQualityInfo from selected folder
-    const preserveQuality = getPreserveQualityInfo();
+    // Get the effective naming template for this folder
+    const template = getSeriesNamingTemplate();
+
+    // Check if template uses quality/codec tokens
+    const needsQuality = templateUsesQuality(template);
 
     // First pass: create initial mappings
     const initialMappings: FileMapping[] = scannedFiles.map(file => {
@@ -494,25 +525,23 @@ export function IdentifyDialog({
         };
       }
 
-      // Generate new path - use display name helper for episode title
-      const seasonFolder = season === 0 ? strings.specials : `${strings.season} ${formatSeason(season)}`;
+      // Get episode title and quality info
       const episodeTitle = getEpisodeDisplayName(matchedEpisode);
-      const baseFileName = generateEpisodeFileName(
-        seriesName,
-        season,
-        epNum,
-        episodeTitle,
-        file.parsed.extension || "mkv"
-      );
-
-      // Add quality suffix if enabled (based on selected folder's setting)
-      // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-      const qualityInfo = getQualityInfo(file);
-      const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
+      const qualityInfo = needsQuality ? getQualityInfo(file) : undefined;
+      const { quality, codec } = splitQualityInfo(qualityInfo);
       const ext = file.parsed.extension || "mkv";
-      const newFileName = qualitySuffix
-        ? baseFileName.replace(`.${ext}`, `${qualitySuffix}.${ext}`)
-        : baseFileName;
+
+      // Apply template to generate path
+      const result = applySeriesTemplate(template, {
+        seriesName,
+        seriesYear,
+        season,
+        episode: epNum,
+        episodeTitle,
+        quality,
+        codec,
+        extension: ext,
+      });
 
       // Prepend selected base folder if configured
       const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
@@ -520,7 +549,7 @@ export function IdentifyDialog({
       return {
         file,
         episode: matchedEpisode,
-        newPath: `${basePath}${seriesFolder}/${seasonFolder}/${newFileName}`,
+        newPath: `${basePath}${result.fullPath}`,
       };
     });
 
@@ -624,29 +653,31 @@ export function IdentifyDialog({
       return;
     }
 
-    // Get sanitized series name based on language preference
-    const seriesName = sanitizeFileName(getDisplayName(selectedResult, language));
+    // Get series info
+    const seriesName = getDisplayName(selectedResult, language);
     const seriesYear = selectedResult.year || "";
-    const seriesFolder = `${seriesName}${seriesYear ? ` (${seriesYear})` : ""}`;
-    const seasonFolder = editingSeason === 0 ? strings.specials : `${strings.season} ${formatSeason(editingSeason)}`;
     const episodeTitle = getEpisodeDisplayName(matchedEpisode);
-    const baseFileName = generateEpisodeFileName(
-      seriesName,
-      editingSeason,
-      editingEpisode,
-      episodeTitle,
-      file.parsed.extension || "mkv"
-    );
 
-    // Add quality suffix if enabled (based on selected folder's setting)
-    // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-    const preserveQuality = getPreserveQualityInfo();
-    const qualityInfo = getQualityInfo(file);
-    const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
+    // Get the effective naming template for this folder
+    const template = getSeriesNamingTemplate();
+
+    // Get quality info if template uses quality/codec tokens
+    const needsQuality = templateUsesQuality(template);
+    const qualityInfo = needsQuality ? getQualityInfo(file) : undefined;
+    const { quality, codec } = splitQualityInfo(qualityInfo);
     const ext = file.parsed.extension || "mkv";
-    const newFileName = qualitySuffix
-      ? baseFileName.replace(`.${ext}`, `${qualitySuffix}.${ext}`)
-      : baseFileName;
+
+    // Apply template to generate path
+    const result = applySeriesTemplate(template, {
+      seriesName,
+      seriesYear,
+      season: editingSeason,
+      episode: editingEpisode,
+      episodeTitle,
+      quality,
+      codec,
+      extension: ext,
+    });
 
     // Prepend selected base folder if configured
     const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
@@ -657,7 +688,7 @@ export function IdentifyDialog({
       updated[editingFileIndex] = {
         file,
         episode: matchedEpisode,
-        newPath: `${basePath}${seriesFolder}/${seasonFolder}/${newFileName}`,
+        newPath: `${basePath}${result.fullPath}`,
         error: undefined,
       };
       // Recheck all mappings for duplicates
@@ -1083,9 +1114,42 @@ export function IdentifyDialog({
                 <p className="text-xs text-muted-foreground">
                   {language === "it" ? "Destinazione:" : "Destination:"}{" "}
                   {selectedBaseFolder ? `${selectedBaseFolder}/` : ""}
-                  {sanitizeFileName(getDisplayName(selectedResult, language))}
-                  {selectedResult.year ? ` (${selectedResult.year})` : ""}
-                  {selectedResult.type === "series" ? "/..." : ""}
+                  {selectedResult.type === "series" ? (
+                    <>
+                      {(() => {
+                        // Get quality/codec from first scanned file if available
+                        const firstFile = scannedFiles[0];
+                        const qualityInfo = firstFile ? getQualityInfo(firstFile) : undefined;
+                        const { quality, codec } = splitQualityInfo(qualityInfo);
+                        return applySeriesTemplate(getSeriesNamingTemplate(), {
+                          seriesName: getDisplayName(selectedResult, language),
+                          seriesYear: selectedResult.year || "",
+                          season: 1,
+                          episode: 1,
+                          episodeTitle: "",
+                          quality,
+                          codec,
+                          extension: "mkv",
+                        }).seriesFolder;
+                      })()}/...
+                    </>
+                  ) : (
+                    <>
+                      {(() => {
+                        // Get quality/codec from first scanned file if available
+                        const firstFile = scannedFiles[0];
+                        const qualityInfo = firstFile ? getQualityInfo(firstFile) : undefined;
+                        const { quality, codec } = splitQualityInfo(qualityInfo);
+                        return applyMovieTemplate(getMovieNamingTemplate(), {
+                          movieName: getDisplayName(selectedResult, language),
+                          year: selectedResult.year || "",
+                          quality,
+                          codec,
+                          extension: "mkv",
+                        }).folder;
+                      })()}
+                    </>
+                  )}
                 </p>
               )}
             </div>
@@ -1221,13 +1285,13 @@ export function IdentifyDialog({
                                               onClick={() => setExpandedDestPath(expandedDestPath === fileIndex ? null : fileIndex)}
                                               className={`text-xs text-green-600 dark:text-green-400 text-left w-full ${expandedDestPath === fileIndex ? "whitespace-normal break-all" : "truncate"}`}
                                             >
-                                              → S{formatSeason(m.episode.seasonNumber ?? 0)}E{formatSeason(m.episode.number ?? 0)} - {getEpisodeDisplayName(m.episode)}
+                                              → {m.newPath.split("/").pop()}
                                             </button>
                                           ) : (
                                             <Tooltip delayDuration={0}>
                                               <TooltipTrigger asChild>
                                                 <p className="text-xs text-green-600 dark:text-green-400 truncate cursor-default">
-                                                  → S{formatSeason(m.episode.seasonNumber ?? 0)}E{formatSeason(m.episode.number ?? 0)} - {getEpisodeDisplayName(m.episode)}
+                                                  → {m.newPath.split("/").pop()}
                                                 </p>
                                               </TooltipTrigger>
                                               <TooltipContent side="top" className="max-w-100 break-all">

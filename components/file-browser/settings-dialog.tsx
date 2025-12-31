@@ -19,9 +19,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, X } from "lucide-react";
+import { Plus, X, Settings2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Language, MovieFolderStructure, BaseFolder } from "@/types/config";
+import { NamingTemplateDialog } from "./naming-template-dialog";
+import type {
+  Language,
+  BaseFolder,
+  SeriesNamingTemplate,
+  MovieNamingTemplate,
+} from "@/types/config";
+
+// Deep comparison helper for templates
+function templatesEqual<T>(a: T | undefined, b: T | undefined): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 interface SettingsDialogProps {
   open: boolean;
@@ -32,8 +43,11 @@ interface SettingsDialogProps {
   onSeriesBaseFoldersChange: (folders: BaseFolder[]) => void;
   moviesBaseFolders: BaseFolder[];
   onMoviesBaseFoldersChange: (folders: BaseFolder[]) => void;
-  movieFolderStructure: MovieFolderStructure;
-  onMovieFolderStructureChange: (structure: MovieFolderStructure) => void;
+  // Global naming templates
+  seriesNamingTemplate?: SeriesNamingTemplate;
+  onSeriesNamingTemplateChange?: (template: SeriesNamingTemplate) => Promise<boolean> | void;
+  movieNamingTemplate?: MovieNamingTemplate;
+  onMovieNamingTemplateChange?: (template: MovieNamingTemplate) => Promise<boolean> | void;
   isLoading?: boolean;
 }
 
@@ -46,29 +60,98 @@ export function SettingsDialog({
   onSeriesBaseFoldersChange,
   moviesBaseFolders,
   onMoviesBaseFoldersChange,
-  movieFolderStructure,
-  onMovieFolderStructureChange,
+  seriesNamingTemplate,
+  onSeriesNamingTemplateChange,
+  movieNamingTemplate,
+  onMovieNamingTemplateChange,
   isLoading,
 }: SettingsDialogProps) {
   const [newSeriesFolder, setNewSeriesFolder] = useState("");
   const [newMoviesFolder, setNewMoviesFolder] = useState("");
 
+  // Naming template dialog state
+  const [namingDialogOpen, setNamingDialogOpen] = useState(false);
+  const [editingFolderType, setEditingFolderType] = useState<"series" | "movies" | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState<string | null>(null);
+
+  // Open global naming template dialog
+  const openGlobalNamingDialog = () => {
+    setEditingFolderType(null);
+    setEditingFolderName(null);
+    setNamingDialogOpen(true);
+  };
+
+  // Open per-folder naming template dialog
+  const openFolderNamingDialog = (folderType: "series" | "movies", folderName: string) => {
+    setEditingFolderType(folderType);
+    setEditingFolderName(folderName);
+    setNamingDialogOpen(true);
+  };
+
+  // Get the current folder being edited (for per-folder dialogs)
+  const getEditingFolder = () => {
+    if (!editingFolderName) return null;
+    const folders = editingFolderType === "series" ? seriesBaseFolders : moviesBaseFolders;
+    return folders.find(f => f.name === editingFolderName);
+  };
+
+  // Handle naming template changes for per-folder overrides
+  // If the template is identical to the global template, remove the override
+  const handleFolderSeriesTemplateChange = (template: SeriesNamingTemplate) => {
+    if (editingFolderName && editingFolderType === "series") {
+      // Compare with global template - if equal, remove the override
+      const isEqualToGlobal = templatesEqual(template, seriesNamingTemplate);
+      onSeriesBaseFoldersChange(
+        seriesBaseFolders.map(f =>
+          f.name === editingFolderName
+            ? { ...f, seriesNamingTemplate: isEqualToGlobal ? undefined : template }
+            : f
+        )
+      );
+    }
+  };
+
+  const handleFolderMovieTemplateChange = (template: MovieNamingTemplate) => {
+    if (editingFolderName && editingFolderType === "movies") {
+      // Compare with global template - if equal, remove the override
+      const isEqualToGlobal = templatesEqual(template, movieNamingTemplate);
+      onMoviesBaseFoldersChange(
+        moviesBaseFolders.map(f =>
+          f.name === editingFolderName
+            ? { ...f, movieNamingTemplate: isEqualToGlobal ? undefined : template }
+            : f
+        )
+      );
+    }
+  };
+
+  // Clear per-folder override (revert to global)
+  const clearFolderOverride = () => {
+    if (editingFolderName && editingFolderType === "series") {
+      onSeriesBaseFoldersChange(
+        seriesBaseFolders.map(f =>
+          f.name === editingFolderName ? { ...f, seriesNamingTemplate: undefined } : f
+        )
+      );
+    } else if (editingFolderName && editingFolderType === "movies") {
+      onMoviesBaseFoldersChange(
+        moviesBaseFolders.map(f =>
+          f.name === editingFolderName ? { ...f, movieNamingTemplate: undefined } : f
+        )
+      );
+    }
+  };
+
   const addSeriesFolder = () => {
     const trimmed = newSeriesFolder.trim();
     if (trimmed && !seriesBaseFolders.some(f => f.name === trimmed)) {
-      onSeriesBaseFoldersChange([...seriesBaseFolders, { name: trimmed, preserveQualityInfo: false }]);
+      onSeriesBaseFoldersChange([...seriesBaseFolders, { name: trimmed }]);
       setNewSeriesFolder("");
     }
   };
 
   const removeSeriesFolder = (folderName: string) => {
     onSeriesBaseFoldersChange(seriesBaseFolders.filter(f => f.name !== folderName));
-  };
-
-  const toggleSeriesFolderQuality = (folderName: string, preserve: boolean) => {
-    onSeriesBaseFoldersChange(
-      seriesBaseFolders.map(f => f.name === folderName ? { ...f, preserveQualityInfo: preserve } : f)
-    );
   };
 
   const toggleSeriesFolderFFprobe = (folderName: string, alwaysUse: boolean) => {
@@ -80,19 +163,13 @@ export function SettingsDialog({
   const addMoviesFolder = () => {
     const trimmed = newMoviesFolder.trim();
     if (trimmed && !moviesBaseFolders.some(f => f.name === trimmed)) {
-      onMoviesBaseFoldersChange([...moviesBaseFolders, { name: trimmed, preserveQualityInfo: false }]);
+      onMoviesBaseFoldersChange([...moviesBaseFolders, { name: trimmed }]);
       setNewMoviesFolder("");
     }
   };
 
   const removeMoviesFolder = (folderName: string) => {
     onMoviesBaseFoldersChange(moviesBaseFolders.filter(f => f.name !== folderName));
-  };
-
-  const toggleMoviesFolderQuality = (folderName: string, preserve: boolean) => {
-    onMoviesBaseFoldersChange(
-      moviesBaseFolders.map(f => f.name === folderName ? { ...f, preserveQualityInfo: preserve } : f)
-    );
   };
 
   const toggleMoviesFolderFFprobe = (folderName: string, alwaysUse: boolean) => {
@@ -147,6 +224,27 @@ export function SettingsDialog({
             </Select>
           </div>
 
+          {/* Global naming templates */}
+          <div className="space-y-2">
+            <Label>
+              {language === "it" ? "Template di denominazione" : "Naming Templates"}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {language === "it"
+                ? "Configura come vengono rinominati i file"
+                : "Configure how files are renamed"}
+            </p>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={openGlobalNamingDialog}
+              disabled={isLoading}
+            >
+              <Settings2 className="h-4 w-4" />
+              {language === "it" ? "Configura template..." : "Configure templates..."}
+            </Button>
+          </div>
+
           {/* Series base folders */}
           <div className="space-y-2">
             <Label>
@@ -168,35 +266,42 @@ export function SettingsDialog({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate flex-1 min-w-0">{folder.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeSeriesFolder(folder.name)}
-                        className="hover:text-destructive shrink-0"
-                        disabled={isLoading}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openFolderNamingDialog("series", folder.name)}
+                          className="hover:text-primary p-0.5"
+                          disabled={isLoading}
+                          title={language === "it" ? "Template denominazione" : "Naming template"}
+                        >
+                          <Settings2 className={`h-3 w-3 ${folder.seriesNamingTemplate ? "text-primary" : ""}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeSeriesFolder(folder.name)}
+                          className="hover:text-destructive p-0.5"
+                          disabled={isLoading}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                       <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
                         <Checkbox
-                          checked={folder.preserveQualityInfo}
-                          onCheckedChange={(checked) => toggleSeriesFolderQuality(folder.name, checked === true)}
-                          disabled={isLoading}
-                          className="h-3.5 w-3.5"
-                        />
-                        <span>{language === "it" ? "Qualità" : "Quality"}</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
-                        <Checkbox
                           checked={folder.alwaysUseFFprobe ?? false}
                           onCheckedChange={(checked) => toggleSeriesFolderFFprobe(folder.name, checked === true)}
-                          disabled={isLoading || !folder.preserveQualityInfo}
+                          disabled={isLoading}
                           className="h-3.5 w-3.5"
                         />
                         <span>{language === "it" ? "Usa FFprobe" : "Use FFprobe"}</span>
                       </label>
                     </div>
+                    {folder.seriesNamingTemplate && (
+                      <p className="text-[10px] text-primary mt-1">
+                        {language === "it" ? "Template personalizzato" : "Custom template"}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -245,35 +350,42 @@ export function SettingsDialog({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate flex-1 min-w-0">{folder.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeMoviesFolder(folder.name)}
-                        className="hover:text-destructive shrink-0"
-                        disabled={isLoading}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openFolderNamingDialog("movies", folder.name)}
+                          className="hover:text-primary p-0.5"
+                          disabled={isLoading}
+                          title={language === "it" ? "Template denominazione" : "Naming template"}
+                        >
+                          <Settings2 className={`h-3 w-3 ${folder.movieNamingTemplate ? "text-primary" : ""}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeMoviesFolder(folder.name)}
+                          className="hover:text-destructive p-0.5"
+                          disabled={isLoading}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                       <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
                         <Checkbox
-                          checked={folder.preserveQualityInfo}
-                          onCheckedChange={(checked) => toggleMoviesFolderQuality(folder.name, checked === true)}
-                          disabled={isLoading}
-                          className="h-3.5 w-3.5"
-                        />
-                        <span>{language === "it" ? "Qualità" : "Quality"}</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
-                        <Checkbox
                           checked={folder.alwaysUseFFprobe ?? false}
                           onCheckedChange={(checked) => toggleMoviesFolderFFprobe(folder.name, checked === true)}
-                          disabled={isLoading || !folder.preserveQualityInfo}
+                          disabled={isLoading}
                           className="h-3.5 w-3.5"
                         />
                         <span>{language === "it" ? "Usa FFprobe" : "Use FFprobe"}</span>
                       </label>
                     </div>
+                    {folder.movieNamingTemplate && (
+                      <p className="text-[10px] text-primary mt-1">
+                        {language === "it" ? "Template personalizzato" : "Custom template"}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -301,71 +413,72 @@ export function SettingsDialog({
             </div>
           </div>
 
-          {/* Movie folder structure */}
-          <div className="space-y-2">
-            <Label>
-              {language === "it" ? "Struttura cartelle film" : "Movie Folder Structure"}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {language === "it"
-                ? "Come organizzare i file dei film nella cartella di destinazione"
-                : "How to organize movie files in the destination folder"}
-            </p>
-            <Select
-              value={movieFolderStructure}
-              onValueChange={(value) => onMovieFolderStructureChange(value as MovieFolderStructure)}
-              disabled={isLoading}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="name">
-                  <div className="flex flex-col items-start">
-                    <span>{language === "it" ? "Per nome" : "By Name"}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {language === "it"
-                        ? "Film/Nome Film (2025)/Nome Film (2025).mkv"
-                        : "Movies/Movie Name (2025)/Movie Name (2025).mkv"}
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="year">
-                  <div className="flex flex-col items-start">
-                    <span>{language === "it" ? "Per anno" : "By Year"}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {language === "it"
-                        ? "Film/2025/Nome Film (2025).mkv"
-                        : "Movies/2025/Movie Name (2025).mkv"}
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="none">
-                  <div className="flex flex-col items-start">
-                    <span>{language === "it" ? "Senza cartella" : "No Folder"}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {language === "it"
-                        ? "Film/Nome Film (2025).mkv"
-                        : "Movies/Movie Name (2025).mkv"}
-                    </span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
 
-        <DialogFooter className="shrink-0 flex-col gap-2">
-          <Button onClick={() => onOpenChange(false)} className="w-full sm:w-auto">
-            OK
-          </Button>
-          {process.env.NEXT_PUBLIC_VERSION && (
-            <p className="text-xs text-muted-foreground text-center w-full">
-              v{process.env.NEXT_PUBLIC_VERSION}
-            </p>
-          )}
+        <DialogFooter className="shrink-0 gap-2">
+          <div className="flex w-full items-center">
+            <div className="flex-1" />
+            {process.env.NEXT_PUBLIC_VERSION && (
+              <p className="text-xs text-muted-foreground flex-1 text-center">
+                v{process.env.NEXT_PUBLIC_VERSION}
+              </p>
+            )}
+            <div className="flex-1 flex justify-end">
+              <Button onClick={async () => {
+                onOpenChange(false);
+                // Small delay to ensure any pending config saves complete before reload
+                await new Promise(resolve => setTimeout(resolve, 300));
+                // Reload page to ensure all components pick up any config changes
+                window.location.reload();
+              }} className="w-full sm:w-auto">
+                OK
+              </Button>
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
+
+      {/* Naming Template Dialog */}
+      <NamingTemplateDialog
+        open={namingDialogOpen}
+        onOpenChange={setNamingDialogOpen}
+        language={language}
+        // For global templates (when no folder is being edited)
+        seriesTemplate={
+          editingFolderName
+            ? getEditingFolder()?.seriesNamingTemplate || seriesNamingTemplate
+            : seriesNamingTemplate
+        }
+        movieTemplate={
+          editingFolderName
+            ? getEditingFolder()?.movieNamingTemplate || movieNamingTemplate
+            : movieNamingTemplate
+        }
+        onSeriesTemplateChange={
+          editingFolderName && editingFolderType === "series"
+            ? handleFolderSeriesTemplateChange
+            : onSeriesNamingTemplateChange
+        }
+        onMovieTemplateChange={
+          editingFolderName && editingFolderType === "movies"
+            ? handleFolderMovieTemplateChange
+            : onMovieNamingTemplateChange
+        }
+        // Per-folder editing
+        folderType={editingFolderType || undefined}
+        folderName={editingFolderName || undefined}
+        isPerFolderOverride={
+          editingFolderName
+            ? editingFolderType === "series"
+              ? !!getEditingFolder()?.seriesNamingTemplate
+              : !!getEditingFolder()?.movieNamingTemplate
+            : false
+        }
+        onClearOverride={editingFolderName ? clearFolderOverride : undefined}
+        // Pass global templates so reset button can use them for per-folder overrides
+        globalSeriesTemplate={seriesNamingTemplate}
+        globalMovieTemplate={movieNamingTemplate}
+      />
     </Dialog>
   );
 }

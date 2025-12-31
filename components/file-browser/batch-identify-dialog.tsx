@@ -38,7 +38,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import Image from "next/image";
-import { sanitizeFileName } from "@/lib/filename-parser";
+import { applyMovieTemplate, splitQualityInfo } from "@/lib/filename-parser";
+// sanitizeFileName is handled inside applyMovieTemplate
 import {
   normalizeForComparison,
   findAutoMatch,
@@ -49,7 +50,11 @@ import type {
   ParsedFileName,
   TVDBApiResponse,
 } from "@/types/tvdb";
-import type { Language, MovieFolderStructure, BaseFolder } from "@/types/config";
+import type {
+  Language,
+  BaseFolder,
+  MovieNamingTemplate,
+} from "@/types/config";
 
 // Helper function to format bytes as human-readable string
 function formatBytes(bytes: number): string {
@@ -92,7 +97,8 @@ interface BatchIdentifyDialogProps {
   isLoading?: boolean;
   language?: Language;
   moviesBaseFolders?: BaseFolder[];
-  movieFolderStructure?: MovieFolderStructure;
+  // Global movie naming template
+  movieNamingTemplate?: MovieNamingTemplate;
 }
 
 export function BatchIdentifyDialog({
@@ -104,7 +110,7 @@ export function BatchIdentifyDialog({
   isLoading: externalLoading,
   language = "en",
   moviesBaseFolders = [],
-  movieFolderStructure = "name",
+  movieNamingTemplate,
 }: BatchIdentifyDialogProps) {
   const isMobile = useIsMobile();
 
@@ -117,13 +123,6 @@ export function BatchIdentifyDialog({
 
   // Selected base folder for movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
-
-  // Get the preserveQualityInfo setting from the selected folder
-  const getPreserveQualityInfo = useCallback(() => {
-    if (!selectedBaseFolder) return false;
-    const folder = moviesBaseFolders.find(f => f.name === selectedBaseFolder);
-    return folder?.preserveQualityInfo ?? false;
-  }, [selectedBaseFolder, moviesBaseFolders]);
 
   // Get the alwaysUseFFprobe setting from the selected folder
   const getAlwaysUseFFprobe = useCallback(() => {
@@ -144,6 +143,22 @@ export function BatchIdentifyDialog({
     // Default: prefer filename quality, fallback to ffprobe if filename has no quality info
     return file.parsed.qualityInfo || file.mediaInfoQuality;
   }, [getAlwaysUseFFprobe]);
+
+  // Get the effective movie naming template (folder override or global)
+  const getMovieNamingTemplate = useCallback((): MovieNamingTemplate | undefined => {
+    if (!selectedBaseFolder) return movieNamingTemplate;
+    const folder = moviesBaseFolders.find(f => f.name === selectedBaseFolder);
+    return folder?.movieNamingTemplate || movieNamingTemplate;
+  }, [selectedBaseFolder, moviesBaseFolders, movieNamingTemplate]);
+
+  // Check if template uses quality/codec tokens
+  const templateUsesQuality = useCallback((template: MovieNamingTemplate | undefined): boolean => {
+    if (!template) return false;
+    const fileTemplate = template.fileTemplate || "";
+    const folderTemplate = template.folderTemplate || "";
+    return fileTemplate.includes("{quality}") || fileTemplate.includes("{codec}") ||
+           folderTemplate.includes("{quality}") || folderTemplate.includes("{codec}");
+  }, []);
 
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -316,26 +331,25 @@ export function BatchIdentifyDialog({
 
             // If we found an auto-match, select it automatically
             if (autoMatch) {
-              const movieName = sanitizeFileName(getDisplayName(autoMatch, language));
+              const movieName = getDisplayName(autoMatch, language);
               const year = autoMatch.year || "";
               const ext = fi.file.parsed.extension || "mkv";
-              const preserveQuality = getPreserveQualityInfo();
-              // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-              const qualityInfo = getQualityInfo(fi.file);
-              const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
-              const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
+
+              // Apply template to generate path
+              const template = getMovieNamingTemplate();
+              const needsQuality = templateUsesQuality(template);
+              const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
+              const { quality, codec } = splitQualityInfo(qualityInfo);
+              const result = applyMovieTemplate(template, {
+                movieName,
+                year,
+                quality,
+                codec,
+                extension: ext,
+              });
 
               const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-
-              let newPath: string;
-              if (movieFolderStructure === "none") {
-                newPath = `${basePath}${movieFileName}`;
-              } else if (movieFolderStructure === "year" && year) {
-                newPath = `${basePath}${year}/${movieFileName}`;
-              } else {
-                const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
-                newPath = `${basePath}${movieFolder}/${movieFileName}`;
-              }
+              const newPath = `${basePath}${result.fullPath}`;
 
               return {
                 ...fi,
@@ -387,26 +401,25 @@ export function BatchIdentifyDialog({
       prev.map((fi, i) => {
         if (i !== fileIndex) return fi;
 
-        const movieName = sanitizeFileName(getDisplayName(result, language));
+        const movieName = getDisplayName(result, language);
         const year = result.year || "";
         const ext = fi.file.parsed.extension || "mkv";
-        const preserveQuality = getPreserveQualityInfo();
-        // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-        const qualityInfo = getQualityInfo(fi.file);
-        const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
-        const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
+
+        // Apply template to generate path
+        const template = getMovieNamingTemplate();
+        const needsQuality = templateUsesQuality(template);
+        const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
+        const { quality, codec } = splitQualityInfo(qualityInfo);
+        const pathResult = applyMovieTemplate(template, {
+          movieName,
+          year,
+          quality,
+          codec,
+          extension: ext,
+        });
 
         const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-
-        let newPath: string;
-        if (movieFolderStructure === "none") {
-          newPath = `${basePath}${movieFileName}`;
-        } else if (movieFolderStructure === "year" && year) {
-          newPath = `${basePath}${year}/${movieFileName}`;
-        } else {
-          const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
-          newPath = `${basePath}${movieFolder}/${movieFileName}`;
-        }
+        const newPath = `${basePath}${pathResult.fullPath}`;
 
         return {
           ...fi,
@@ -450,32 +463,33 @@ export function BatchIdentifyDialog({
     );
   };
 
-  // Regenerate paths when base folder changes
+  // Regenerate paths when base folder or template changes
+  const movieTemplateJson = JSON.stringify(movieNamingTemplate);
+
   useEffect(() => {
-    const preserveQuality = getPreserveQualityInfo();
+    const template = getMovieNamingTemplate();
+    const needsQuality = templateUsesQuality(template);
     setFileIdentifications((prev) =>
       prev.map((fi) => {
         if (!fi.selectedResult) return fi;
 
-        const movieName = sanitizeFileName(getDisplayName(fi.selectedResult, language));
+        const movieName = getDisplayName(fi.selectedResult, language);
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
-        // Prefer mediaInfoQuality (has codec from ffprobe) over qualityInfo (from filename only)
-        const qualityInfo = getQualityInfo(fi.file);
-        const qualitySuffix = preserveQuality && qualityInfo ? ` [${qualityInfo}]` : "";
-        const movieFileName = `${movieName}${year ? ` (${year})` : ""}${qualitySuffix}.${ext}`;
+        const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
+        const { quality, codec } = splitQualityInfo(qualityInfo);
+
+        // Apply template to generate path
+        const result = applyMovieTemplate(template, {
+          movieName,
+          year,
+          quality,
+          codec,
+          extension: ext,
+        });
 
         const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-
-        let newPath: string;
-        if (movieFolderStructure === "none") {
-          newPath = `${basePath}${movieFileName}`;
-        } else if (movieFolderStructure === "year" && year) {
-          newPath = `${basePath}${year}/${movieFileName}`;
-        } else {
-          const movieFolder = `${movieName}${year ? ` (${year})` : ""}`;
-          newPath = `${basePath}${movieFolder}/${movieFileName}`;
-        }
+        const newPath = `${basePath}${result.fullPath}`;
 
         return {
           ...fi,
@@ -484,7 +498,7 @@ export function BatchIdentifyDialog({
         };
       })
     );
-  }, [selectedBaseFolder, movieFolderStructure, getPreserveQualityInfo]);
+  }, [selectedBaseFolder, movieTemplateJson, getMovieNamingTemplate, getQualityInfo, language]);
 
   const handleConfirm = useCallback(async () => {
     const validIdentifications = fileIdentifications.filter(
