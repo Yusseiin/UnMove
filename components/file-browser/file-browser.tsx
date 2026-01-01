@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, memo } from "react";
-import { toast } from "sonner";
+import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -21,6 +21,7 @@ import { TransferProgressDialog } from "./transfer-progress-dialog";
 import { IdentifyDialog } from "./identify-dialog";
 import { BatchIdentifyDialog } from "./batch-identify-dialog";
 import { SettingsDialog } from "./settings-dialog";
+import { RenameChoiceDialog } from "./rename-choice-dialog";
 import type { PaneType, OperationResponse, FileEntry } from "@/types/files";
 
 interface PaneRef {
@@ -57,13 +58,18 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
   const [identifyFileName, setIdentifyFileName] = useState("");
   const [identifyFilePath, setIdentifyFilePath] = useState("");
   const [identifyFilePaths, setIdentifyFilePaths] = useState<string[]>([]);
-  const [identifyOperation, setIdentifyOperation] = useState<"copy" | "move">("move");
+  const [identifyOperation, setIdentifyOperation] = useState<"copy" | "move" | "rename">("move");
 
   // Rename dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [renamePane, setRenamePane] = useState<PaneType>("downloads");
   const [renamePath, setRenamePath] = useState("");
   const [renameCurrentName, setRenameCurrentName] = useState("");
+
+  // Rename choice dialog state (for choosing between normal rename and TVDB rename)
+  const [renameChoiceOpen, setRenameChoiceOpen] = useState(false);
+  const [renameChoicePaths, setRenameChoicePaths] = useState<string[]>([]);
+  const [renameChoiceEntries, setRenameChoiceEntries] = useState<FileEntry[]>([]);
 
   // Mobile view state - which pane to show
   const [mobileActivePane, setMobileActivePane] = useState<PaneType>("downloads");
@@ -149,13 +155,61 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
     setBatchIdentifyDialogOpen(true);
   }, [transferOperation]);
 
+  // Handle rename button click - show choice dialog
+  const handleRenameWithChoice = useCallback((pane: PaneType, selectedPaths: string[], entries: FileEntry[]) => {
+    setRenamePane(pane);
+    setRenameChoicePaths(selectedPaths);
+    setRenameChoiceEntries(entries);
+
+    // Store file info for potential identify
+    setIdentifyFilePaths(selectedPaths);
+    if (selectedPaths.length === 1) {
+      const entry = entries.find((e) => e.path === selectedPaths[0]);
+      if (entry) {
+        setIdentifyFileName(entry.name);
+        setIdentifyFilePath(entry.path);
+        setRenamePath(entry.path);
+        setRenameCurrentName(entry.name);
+      }
+    } else {
+      const firstEntry = entries.find((e) => e.path === selectedPaths[0]);
+      setIdentifyFileName(firstEntry ? `${firstEntry.name} and ${selectedPaths.length - 1} more` : `${selectedPaths.length} items`);
+      setIdentifyFilePath(selectedPaths[0]);
+    }
+
+    setRenameChoiceOpen(true);
+  }, []);
+
+  // Handle normal rename choice (classic rename dialog)
+  const handleNormalRenameChoice = useCallback(() => {
+    setRenameChoiceOpen(false);
+    setRenameDialogOpen(true);
+  }, []);
+
+  // Handle TVDB rename choice (single item)
+  const handleTvdbRenameChoice = useCallback(() => {
+    setRenameChoiceOpen(false);
+    setIdentifyOperation("rename");
+    setIdentifyDialogOpen(true);
+  }, []);
+
+  // Handle batch TVDB rename choice (multiple items)
+  const handleBatchTvdbRenameChoice = useCallback(() => {
+    setRenameChoiceOpen(false);
+    setIdentifyOperation("rename");
+    setBatchIdentifyDialogOpen(true);
+  }, []);
+
   // Handle batch identify confirm
   const handleBatchIdentifyConfirm = useCallback(() => {
-    toast.success(`Files ${identifyOperation === "copy" ? "copied" : "moved"} successfully`);
+    const actionText = identifyOperation === "copy" ? "copied" : identifyOperation === "move" ? "moved" : "renamed";
+    showSuccessToast(`Files ${actionText} successfully`, "");
     setBatchIdentifyDialogOpen(false);
     downloadsPaneRef.current?.clearSelection();
     downloadsPaneRef.current?.refresh();
-    mediaPaneRef.current?.refresh();
+    if (identifyOperation !== "rename") {
+      mediaPaneRef.current?.refresh();
+    }
   }, [identifyOperation]);
 
   // Check for conflicts before transfer
@@ -202,12 +256,12 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
   // Handle transfer progress complete
   const handleTransferProgressComplete = useCallback((success: boolean, message: string) => {
     if (success) {
-      toast.success(message);
+      showSuccessToast(message, "");
       downloadsPaneRef.current?.clearSelection();
       downloadsPaneRef.current?.refresh();
       mediaPaneRef.current?.refresh();
     } else {
-      toast.error(message);
+      showErrorToast(message, "");
     }
   }, []);
 
@@ -255,13 +309,32 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
 
   // Handle identify confirm - batch operation is already done by the dialog
   // Just close the dialog and refresh both panes
-  const handleIdentifyConfirm = useCallback(() => {
-    toast.success(`Files ${identifyOperation === "copy" ? "copied" : "moved"} successfully`);
+  // hasErrors is passed when there were folder rename errors (files succeeded but folders failed)
+  const handleIdentifyConfirm = useCallback((newPath: string, hasErrors?: boolean) => {
+    // Only show success toast if there were no errors
+    // (error toast is shown by the dialog itself)
+    if (!hasErrors) {
+      const actionText = identifyOperation === "copy" ? "copied" : identifyOperation === "move" ? "moved" : "renamed";
+      showSuccessToast(`Files ${actionText} successfully`, "");
+    }
     setIdentifyDialogOpen(false);
-    downloadsPaneRef.current?.clearSelection();
-    downloadsPaneRef.current?.refresh();
-    mediaPaneRef.current?.refresh();
-  }, [identifyOperation]);
+
+    if (identifyOperation === "rename") {
+      // For rename, refresh the pane where the rename happened
+      if (renamePane === "downloads") {
+        downloadsPaneRef.current?.clearSelection();
+        downloadsPaneRef.current?.refresh();
+      } else {
+        mediaPaneRef.current?.clearSelection();
+        mediaPaneRef.current?.refresh();
+      }
+    } else {
+      // For copy/move, refresh both panes
+      downloadsPaneRef.current?.clearSelection();
+      downloadsPaneRef.current?.refresh();
+      mediaPaneRef.current?.refresh();
+    }
+  }, [identifyOperation, renamePane]);
 
   // Handle delete
   const handleDelete = useCallback((pane: PaneType, paths: string[]) => {
@@ -288,7 +361,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
       const data: OperationResponse = await response.json();
 
       if (data.success) {
-        toast.success(data.message);
+        showSuccessToast(data.message || "Deleted successfully", "");
         setDeleteConfirmOpen(false);
         if (deletePane === "downloads") {
           downloadsPaneRef.current?.clearSelection();
@@ -298,10 +371,10 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
           mediaPaneRef.current?.refresh();
         }
       } else {
-        toast.error(data.error || "Delete failed");
+        showErrorToast(data.error || "Delete failed", "");
       }
     } catch {
-      toast.error("Failed to delete items");
+      showErrorToast("Failed to delete items", "");
     } finally {
       setIsOperationLoading(false);
     }
@@ -311,14 +384,6 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
   const handleCreateFolder = useCallback((path: string) => {
     setCreateFolderPath(path);
     setCreateFolderOpen(true);
-  }, []);
-
-  // Handle rename
-  const handleRename = useCallback((pane: PaneType, path: string, currentName: string) => {
-    setRenamePane(pane);
-    setRenamePath(path);
-    setRenameCurrentName(currentName);
-    setRenameDialogOpen(true);
   }, []);
 
   // Confirm rename
@@ -339,7 +404,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
       const data: OperationResponse = await response.json();
 
       if (data.success) {
-        toast.success(data.message);
+        showSuccessToast(data.message || "Renamed successfully", "");
         setRenameDialogOpen(false);
         if (renamePane === "downloads") {
           downloadsPaneRef.current?.clearSelection();
@@ -349,10 +414,10 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
           mediaPaneRef.current?.refresh();
         }
       } else {
-        toast.error(data.error || "Rename failed");
+        showErrorToast(data.error || "Rename failed", "");
       }
     } catch {
-      toast.error("Failed to rename");
+      showErrorToast("Failed to rename", "");
     } finally {
       setIsOperationLoading(false);
     }
@@ -375,14 +440,14 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
       const data: OperationResponse = await response.json();
 
       if (data.success) {
-        toast.success(data.message);
+        showSuccessToast(data.message || "Folder created", "");
         setCreateFolderOpen(false);
         mediaPaneRef.current?.refresh();
       } else {
-        toast.error(data.error || "Failed to create folder");
+        showErrorToast(data.error || "Failed to create folder", "");
       }
     } catch {
-      toast.error("Failed to create folder");
+      showErrorToast("Failed to create folder", "");
     } finally {
       setIsOperationLoading(false);
     }
@@ -432,7 +497,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
               onCopy={handleCopy}
               onMove={handleMove}
               onDelete={handleDelete}
-              onRename={handleRename}
+              onRename={handleRenameWithChoice}
               paneRef={setDownloadsPaneRef}
             />
           </div>
@@ -440,7 +505,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
             <FilePane
               pane="media"
               onDelete={handleDelete}
-              onRename={handleRename}
+              onRename={handleRenameWithChoice}
               onCreateFolder={handleCreateFolder}
               paneRef={setMediaPaneRef}
             />
@@ -460,7 +525,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
                   onCopy={handleCopy}
                   onMove={handleMove}
                   onDelete={handleDelete}
-                  onRename={handleRename}
+                  onRename={handleRenameWithChoice}
                   paneRef={setDownloadsPaneRef}
                 />
               </div>
@@ -476,7 +541,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
                 <FilePane
                   pane="media"
                   onDelete={handleDelete}
-                  onRename={handleRename}
+                  onRename={handleRenameWithChoice}
                   onCreateFolder={handleCreateFolder}
                   paneRef={setMediaPaneRef}
                 />
@@ -518,6 +583,15 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         currentName={renameCurrentName}
         onSubmit={handleConfirmRename}
         isLoading={isOperationLoading}
+      />
+
+      <RenameChoiceDialog
+        open={renameChoiceOpen}
+        onOpenChange={setRenameChoiceOpen}
+        itemCount={renameChoicePaths.length}
+        onNormalRename={handleNormalRenameChoice}
+        onIdentifyRename={handleTvdbRenameChoice}
+        onBatchIdentifyRename={handleBatchTvdbRenameChoice}
       />
 
       <DestinationPicker
@@ -569,6 +643,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         fileName={identifyFileName}
         filePath={identifyFilePath}
         filePaths={identifyFilePaths}
+        pane={identifyOperation === "rename" ? renamePane : "downloads"}
         operation={identifyOperation}
         onConfirm={handleIdentifyConfirm}
         isLoading={isOperationLoading}
@@ -583,6 +658,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         open={batchIdentifyDialogOpen}
         onOpenChange={setBatchIdentifyDialogOpen}
         filePaths={identifyFilePaths}
+        pane={identifyOperation === "rename" ? renamePane : "downloads"}
         operation={identifyOperation}
         onConfirm={handleBatchIdentifyConfirm}
         isLoading={isOperationLoading}
@@ -604,6 +680,12 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onSeriesNamingTemplateChange={(template) => updateConfig({ seriesNamingTemplate: template })}
         movieNamingTemplate={config.movieNamingTemplate}
         onMovieNamingTemplateChange={(template) => updateConfig({ movieNamingTemplate: template })}
+        qualityValues={config.qualityValues}
+        onQualityValuesChange={(values) => updateConfig({ qualityValues: values })}
+        codecValues={config.codecValues}
+        onCodecValuesChange={(values) => updateConfig({ codecValues: values })}
+        extraTagValues={config.extraTagValues}
+        onExtraTagValuesChange={(values) => updateConfig({ extraTagValues: values })}
         isLoading={configLoading}
       />
     </div>
@@ -616,7 +698,7 @@ interface FilePaneProps {
   onCopy?: (paths: string[], entries: FileEntry[]) => void;
   onMove?: (paths: string[], entries: FileEntry[]) => void;
   onDelete: (pane: PaneType, paths: string[]) => void;
-  onRename: (pane: PaneType, path: string, currentName: string) => void;
+  onRename: (pane: PaneType, paths: string[], entries: FileEntry[]) => void;
   onCreateFolder?: (path: string) => void;
   paneRef: (ref: PaneRef | null) => void;
 }
@@ -654,16 +736,14 @@ const FilePane = memo(function FilePane({
     }
   }, [selectedPaths.size, entries.length, clearSelection, selectAll]);
 
-  // Get the selected entry for rename (only when exactly 1 selected)
-  const selectedEntry = selectedPaths.size === 1
-    ? entries.find(e => e.path === Array.from(selectedPaths)[0])
-    : null;
-
+  // Get selected entries for rename
   const handleRenameClick = useCallback(() => {
-    if (selectedEntry) {
-      onRename(pane, selectedEntry.path, selectedEntry.name);
+    if (selectedPaths.size > 0) {
+      const selectedPathsArray = Array.from(selectedPaths);
+      const selectedEntries = entries.filter(e => selectedPaths.has(e.path));
+      onRename(pane, selectedPathsArray, selectedEntries);
     }
-  }, [selectedEntry, onRename, pane]);
+  }, [selectedPaths, entries, onRename, pane]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -698,9 +778,9 @@ const FilePane = memo(function FilePane({
         )}
         <button
           className="inline-flex items-center justify-center gap-1 whitespace-nowrap text-xs sm:text-sm font-medium h-8 px-2 sm:px-3 rounded-md hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
-          disabled={selectedPaths.size !== 1 || isLoading}
+          disabled={selectedPaths.size === 0 || isLoading}
           onClick={handleRenameClick}
-          title={selectedPaths.size !== 1 ? "Select exactly one item to rename" : "Rename"}
+          title="Rename"
         >
           Rename
         </button>

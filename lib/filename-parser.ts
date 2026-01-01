@@ -1,6 +1,13 @@
 import type { ParsedFileName } from "@/types/tvdb";
 import type { SeriesNamingTemplate, MovieNamingTemplate } from "@/types/config";
-import { defaultSeriesNamingTemplate, defaultMovieNamingTemplate } from "@/types/config";
+import { defaultSeriesNamingTemplate, defaultMovieNamingTemplate, defaultQualityValues, defaultCodecValues, defaultExtraTagValues } from "@/types/config";
+
+// Options for parsing with custom quality/codec/extraTag patterns
+export interface ParseOptions {
+  qualityValues?: string[];
+  codecValues?: string[];
+  extraTagValues?: string[];
+}
 
 // Quality indicators
 const QUALITY_PATTERNS = [
@@ -182,9 +189,51 @@ const PRESERVE_QUALITY_PATTERNS = [
 ];
 
 /**
+ * Build quality and codec patterns from custom values
+ */
+function buildPatterns(options?: ParseOptions): {
+  qualityPatterns: string[];
+  codecPatterns: string[];
+  preservePatterns: string[];
+} {
+  // Use custom values if provided, otherwise use defaults
+  const customQuality = options?.qualityValues ?? defaultQualityValues;
+  const customCodec = options?.codecValues ?? defaultCodecValues;
+  const customExtraTags = options?.extraTagValues ?? defaultExtraTagValues;
+
+  // Combine custom with base hardcoded patterns (custom first for priority)
+  const qualityPatterns = [
+    ...customQuality.map(v => escapeRegex(v)),
+    ...QUALITY_PATTERNS,
+  ];
+
+  const codecPatterns = [
+    ...customCodec.map(v => escapeRegex(v)),
+  ];
+
+  // Preserve patterns include quality, codec, and extra tags for the qualityInfo string
+  const preservePatterns = [
+    ...customQuality.map(v => escapeRegex(v)),
+    ...customCodec.map(v => escapeRegex(v)),
+    ...customExtraTags.map(v => escapeRegex(v)),
+    ...PRESERVE_QUALITY_PATTERNS,
+  ];
+
+  return { qualityPatterns, codecPatterns, preservePatterns };
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Parse a media filename to extract show/movie info
  */
-export function parseFileName(filename: string): ParsedFileName {
+export function parseFileName(filename: string, options?: ParseOptions): ParsedFileName {
+  const { qualityPatterns, preservePatterns } = buildPatterns(options);
   // Get extension
   const lastDotIndex = filename.lastIndexOf(".");
   const extension =
@@ -210,7 +259,7 @@ export function parseFileName(filename: string): ParsedFileName {
   // Extract quality - find the first one for the quality field
   // Patterns must be standalone (at start/end or surrounded by separators)
   let quality: string | undefined;
-  for (const q of QUALITY_PATTERNS) {
+  for (const q of qualityPatterns) {
     // Match only if preceded by separator/start AND followed by separator/end
     const qRegex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])(${q})(?:[.\\s_\\-\\]\\)]|$)`, "i");
     const match = workingName.match(qRegex);
@@ -222,7 +271,7 @@ export function parseFileName(filename: string): ParsedFileName {
   // Extract quality info string to preserve (resolution + codec)
   // This captures patterns like "1080p.H264" or "FullHD 1080p H264"
   const qualityInfoParts: string[] = [];
-  for (const q of PRESERVE_QUALITY_PATTERNS) {
+  for (const q of preservePatterns) {
     const qRegex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])(${q})(?:[.\\s_\\-\\]\\)]|$)`, "i");
     const match = workingName.match(qRegex);
     if (match) {
@@ -238,7 +287,7 @@ export function parseFileName(filename: string): ParsedFileName {
   const qualityInfo = qualityInfoParts.length > 0 ? qualityInfoParts.join(".") : undefined;
 
   // Remove ALL quality patterns from name (only standalone occurrences)
-  for (const q of QUALITY_PATTERNS) {
+  for (const q of qualityPatterns) {
     const qRegex = new RegExp(`(?:^|[.\\s_\\-\\[\\(])(${q})(?:[.\\s_\\-\\]\\)]|$)`, "gi");
     workingName = workingName.replace(qRegex, " ");
   }
@@ -503,41 +552,81 @@ export function generateMoviePath(
 // TEMPLATE-BASED NAMING FUNCTIONS
 // ============================================================================
 
-// Resolution patterns (quality)
+// Resolution patterns (quality) - base patterns
 const RESOLUTION_PATTERNS = [
   "2160p", "4k", "uhd", "1080p", "1080i", "720p", "576p", "480p", "360p",
   "fullhd", "full-hd", "hd", "sd"
 ];
 
-// Video codec patterns
+// Video codec patterns - base patterns
 const CODEC_PATTERNS = [
   "x264", "x265", "h264", "h265", "h.264", "h.265", "hevc", "avc", "xvid", "divx",
   "av1", "vp9", "mpeg2", "mpeg4"
 ];
 
+// Extra tag patterns - base patterns (HDR, bit depth, languages, etc.)
+const EXTRA_TAG_PATTERNS = [
+  // HDR formats
+  "hdr", "hdr10", "hdr10+", "dolby vision", "dv", "sdr",
+  // Bit depth
+  "10bit", "10-bit", "8bit", "8-bit",
+  // Languages (common)
+  "ita", "eng", "spa", "fre", "ger", "jpn", "kor", "chi", "rus", "por",
+  "italian", "english", "spanish", "french", "german", "japanese", "korean", "chinese", "russian", "portuguese",
+  // Audio
+  "multi", "dual", "dub", "dubbed",
+  // Subtitles
+  "sub", "subs", "subbed",
+];
+
 /**
- * Split a qualityInfo string (e.g., "1080p.H264") into separate quality and codec
+ * Split a qualityInfo string (e.g., "1080p.H264.10bit.ITA") into separate quality, codec, and extra tags
+ * @param qualityInfo - The quality info string to split
+ * @param options - Optional custom quality/codec/extraTags values from config
  */
-export function splitQualityInfo(qualityInfo: string | undefined): { quality: string; codec: string } {
+export function splitQualityInfo(
+  qualityInfo: string | undefined,
+  options?: ParseOptions
+): { quality: string; codec: string; extraTags: string } {
   if (!qualityInfo) {
-    return { quality: "", codec: "" };
+    return { quality: "", codec: "", extraTags: "" };
   }
+
+  // Build pattern lists including custom values
+  const customQuality = options?.qualityValues ?? defaultQualityValues;
+  const customCodec = options?.codecValues ?? defaultCodecValues;
+  const customExtraTags = options?.extraTagValues ?? defaultExtraTagValues;
+
+  // Combine custom with base patterns (custom values normalized to lowercase for comparison)
+  const allResolutions = [
+    ...customQuality.map(v => v.toLowerCase()),
+    ...RESOLUTION_PATTERNS,
+  ];
+  const allCodecs = [
+    ...customCodec.map(v => v.toLowerCase()),
+    ...CODEC_PATTERNS,
+  ];
+  const allExtraTags = [
+    ...customExtraTags.map(v => v.toLowerCase()),
+    ...EXTRA_TAG_PATTERNS,
+  ];
 
   // Split by common separators
   const parts = qualityInfo.split(/[.\s_-]+/);
 
   let quality = "";
   let codec = "";
+  const extraTagParts: string[] = [];
 
   for (const part of parts) {
     const lowerPart = part.toLowerCase();
 
-    // Check if it's a resolution/quality
-    if (!quality && RESOLUTION_PATTERNS.some(p => lowerPart === p || lowerPart === p.replace("-", ""))) {
+    // Check if it's a resolution/quality (only take the first one)
+    if (!quality && allResolutions.some(p => lowerPart === p || lowerPart === p.replace("-", ""))) {
       quality = part;
     }
-    // Check if it's a codec
-    else if (!codec && CODEC_PATTERNS.some(p => lowerPart === p || lowerPart === p.replace(".", ""))) {
+    // Check if it's a codec (only take the first one)
+    else if (!codec && allCodecs.some(p => lowerPart === p || lowerPart === p.replace(".", ""))) {
       // Normalize codec format (H.264 -> H264, h265 -> H265)
       codec = part.replace(/\./g, "").toUpperCase();
       // Normalize x264/x265 to H264/H265 style
@@ -545,9 +634,21 @@ export function splitQualityInfo(qualityInfo: string | undefined): { quality: st
         codec = "H" + codec.slice(1);
       }
     }
+    // Check if it's an extra tag (collect all matching)
+    else if (allExtraTags.some(p => lowerPart === p || lowerPart === p.replace("-", ""))) {
+      // Preserve original case but normalize common patterns
+      let normalizedTag = part;
+      // Normalize 10-bit to 10bit
+      if (lowerPart === "10-bit") normalizedTag = "10bit";
+      if (lowerPart === "8-bit") normalizedTag = "8bit";
+      // Avoid duplicates
+      if (!extraTagParts.some(t => t.toLowerCase() === normalizedTag.toLowerCase())) {
+        extraTagParts.push(normalizedTag);
+      }
+    }
   }
 
-  return { quality, codec };
+  return { quality, codec, extraTags: extraTagParts.join(".") };
 }
 
 /**
@@ -559,8 +660,9 @@ export interface SeriesTemplateData {
   season: number;
   episode: number;
   episodeTitle?: string;
-  quality?: string;  // Resolution (e.g., "1080p", "4K")
-  codec?: string;    // Video codec (e.g., "H264", "HEVC")
+  quality?: string;    // Resolution (e.g., "1080p", "4K")
+  codec?: string;      // Video codec (e.g., "H264", "HEVC")
+  extraTags?: string;  // Extra tags (e.g., "10bit.HDR.ITA")
   extension: string;
 }
 
@@ -570,8 +672,9 @@ export interface SeriesTemplateData {
 export interface MovieTemplateData {
   movieName: string;
   year?: string;
-  quality?: string;  // Resolution (e.g., "1080p", "4K")
-  codec?: string;    // Video codec (e.g., "H264", "HEVC")
+  quality?: string;    // Resolution (e.g., "1080p", "4K")
+  codec?: string;      // Video codec (e.g., "H264", "HEVC")
+  extraTags?: string;  // Extra tags (e.g., "10bit.HDR.ITA")
   extension: string;
 }
 
@@ -594,6 +697,7 @@ export function applySeriesTemplate(
   const episodeTitle = data.episodeTitle ? sanitizeFileName(data.episodeTitle) : "";
   const quality = data.quality || "";
   const codec = data.codec || "";
+  const extraTags = data.extraTags || "";
 
   // Helper to replace tokens in a string
   const replaceTokens = (str: string): string => {
@@ -605,11 +709,15 @@ export function applySeriesTemplate(
       .replace(/\{episodeTitle\}/g, episodeTitle)
       .replace(/\{quality\}/g, quality)
       .replace(/\{codec\}/g, codec)
+      .replace(/\{extraTags\}/g, extraTags)
       // Clean up empty parentheses/brackets from missing values
       .replace(/\s*\(\s*\)/g, "")
       .replace(/\s*\[\s*\]/g, "")
+      // Clean up trailing/leading separators
       .replace(/\s+-\s*$/g, "") // Remove trailing " -"
       .replace(/^\s*-\s+/g, "") // Remove leading "- "
+      // Clean up multiple consecutive spaces
+      .replace(/\s+/g, " ")
       .trim();
   };
 
@@ -622,7 +730,7 @@ export function applySeriesTemplate(
     : replaceTokens(t.seasonFolderTemplate);
 
   // Generate filename (without extension)
-  const fileNameWithoutExt = replaceTokens(t.fileTemplate);
+  const fileNameWithoutExt = replaceTokens(t.fileTemplate).trim();
   const fileName = `${fileNameWithoutExt}.${data.extension}`;
 
   // Generate full path
@@ -645,6 +753,7 @@ export function applyMovieTemplate(
   const year = data.year || "";
   const quality = data.quality || "";
   const codec = data.codec || "";
+  const extraTags = data.extraTags || "";
 
   // Helper to replace tokens in a string
   const replaceTokens = (str: string): string => {
@@ -653,16 +762,20 @@ export function applyMovieTemplate(
       .replace(/\{year\}/g, year)
       .replace(/\{quality\}/g, quality)
       .replace(/\{codec\}/g, codec)
+      .replace(/\{extraTags\}/g, extraTags)
       // Clean up empty parentheses/brackets from missing values
       .replace(/\s*\(\s*\)/g, "")
       .replace(/\s*\[\s*\]/g, "")
+      // Clean up trailing/leading separators
       .replace(/\s+-\s*$/g, "") // Remove trailing " -"
       .replace(/^\s*-\s+/g, "") // Remove leading "- "
+      // Clean up multiple consecutive spaces
+      .replace(/\s+/g, " ")
       .trim();
   };
 
   // Generate filename (without extension)
-  const fileNameWithoutExt = replaceTokens(t.fileTemplate);
+  const fileNameWithoutExt = replaceTokens(t.fileTemplate).trim();
   const fileName = `${fileNameWithoutExt}.${data.extension}`;
 
   // Generate folder based on folderStructure setting

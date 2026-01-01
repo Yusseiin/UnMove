@@ -48,6 +48,13 @@ interface SettingsDialogProps {
   onSeriesNamingTemplateChange?: (template: SeriesNamingTemplate) => Promise<boolean> | void;
   movieNamingTemplate?: MovieNamingTemplate;
   onMovieNamingTemplateChange?: (template: MovieNamingTemplate) => Promise<boolean> | void;
+  // Quality, codec, and extra tag values
+  qualityValues?: string[];
+  onQualityValuesChange?: (values: string[]) => void;
+  codecValues?: string[];
+  onCodecValuesChange?: (values: string[]) => void;
+  extraTagValues?: string[];
+  onExtraTagValuesChange?: (values: string[]) => void;
   isLoading?: boolean;
 }
 
@@ -64,10 +71,19 @@ export function SettingsDialog({
   onSeriesNamingTemplateChange,
   movieNamingTemplate,
   onMovieNamingTemplateChange,
+  qualityValues = [],
+  onQualityValuesChange,
+  codecValues = [],
+  onCodecValuesChange,
+  extraTagValues = [],
+  onExtraTagValuesChange,
   isLoading,
 }: SettingsDialogProps) {
   const [newSeriesFolder, setNewSeriesFolder] = useState("");
   const [newMoviesFolder, setNewMoviesFolder] = useState("");
+  const [newQualityValue, setNewQualityValue] = useState("");
+  const [newCodecValue, setNewCodecValue] = useState("");
+  const [newExtraTagValue, setNewExtraTagValue] = useState("");
 
   // Naming template dialog state
   const [namingDialogOpen, setNamingDialogOpen] = useState(false);
@@ -183,6 +199,45 @@ export function SettingsDialog({
       e.preventDefault();
       addFn();
     }
+  };
+
+  // Quality values helpers
+  const addQualityValue = () => {
+    const trimmed = newQualityValue.trim();
+    if (trimmed && !qualityValues.includes(trimmed)) {
+      onQualityValuesChange?.([...qualityValues, trimmed]);
+      setNewQualityValue("");
+    }
+  };
+
+  const removeQualityValue = (value: string) => {
+    onQualityValuesChange?.(qualityValues.filter(v => v !== value));
+  };
+
+  // Codec values helpers
+  const addCodecValue = () => {
+    const trimmed = newCodecValue.trim();
+    if (trimmed && !codecValues.includes(trimmed)) {
+      onCodecValuesChange?.([...codecValues, trimmed]);
+      setNewCodecValue("");
+    }
+  };
+
+  const removeCodecValue = (value: string) => {
+    onCodecValuesChange?.(codecValues.filter(v => v !== value));
+  };
+
+  // Extra tag values helpers
+  const addExtraTagValue = () => {
+    const trimmed = newExtraTagValue.trim();
+    if (trimmed && !extraTagValues.includes(trimmed)) {
+      onExtraTagValuesChange?.([...extraTagValues, trimmed]);
+      setNewExtraTagValue("");
+    }
+  };
+
+  const removeExtraTagValue = (value: string) => {
+    onExtraTagValuesChange?.(extraTagValues.filter(v => v !== value));
   };
 
   return (
@@ -407,6 +462,171 @@ export function SettingsDialog({
                 size="icon"
                 onClick={addMoviesFolder}
                 disabled={isLoading || !newMoviesFolder.trim()}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Quality values */}
+          <div className="space-y-2">
+            <Label>
+              {language === "it" ? "Valori qualità" : "Quality Values"}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {language === "it"
+                ? "Valori da riconoscere nei nomi file (es. 1080p, 720p, 4K)"
+                : "Values to detect in filenames (e.g. 1080p, 720p, 4K)"}
+            </p>
+
+            {/* Existing quality values */}
+            {qualityValues.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {qualityValues.map((value) => (
+                  <span
+                    key={value}
+                    className="inline-flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-0.5 rounded text-xs"
+                  >
+                    {value}
+                    <button
+                      type="button"
+                      onClick={() => removeQualityValue(value)}
+                      className="hover:text-destructive"
+                      disabled={isLoading}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Add new quality value */}
+            <div className="flex gap-2">
+              <Input
+                value={newQualityValue}
+                onChange={(e) => setNewQualityValue(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, addQualityValue)}
+                placeholder={language === "it" ? "es. 1080p" : "e.g. 1080p"}
+                disabled={isLoading}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={addQualityValue}
+                disabled={isLoading || !newQualityValue.trim()}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Codec values */}
+          <div className="space-y-2">
+            <Label>
+              {language === "it" ? "Valori codec" : "Codec Values"}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {language === "it"
+                ? "Valori da riconoscere nei nomi file (es. x264, HEVC, HDR)"
+                : "Values to detect in filenames (e.g. x264, HEVC, HDR)"}
+            </p>
+
+            {/* Existing codec values */}
+            {codecValues.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {codecValues.map((value) => (
+                  <span
+                    key={value}
+                    className="inline-flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-0.5 rounded text-xs"
+                  >
+                    {value}
+                    <button
+                      type="button"
+                      onClick={() => removeCodecValue(value)}
+                      className="hover:text-destructive"
+                      disabled={isLoading}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Add new codec value */}
+            <div className="flex gap-2">
+              <Input
+                value={newCodecValue}
+                onChange={(e) => setNewCodecValue(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, addCodecValue)}
+                placeholder={language === "it" ? "es. x265" : "e.g. x265"}
+                disabled={isLoading}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={addCodecValue}
+                disabled={isLoading || !newCodecValue.trim()}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Extra tag values */}
+          <div className="space-y-2">
+            <Label>
+              {language === "it" ? "Tag extra" : "Extra Tags"}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {language === "it"
+                ? "Tag aggiuntivi da riconoscere (es. 10bit, HDR, ITA, ENG)"
+                : "Additional tags to detect (e.g. 10bit, HDR, ITA, ENG)"}
+            </p>
+
+            {/* Existing extra tag values */}
+            {extraTagValues.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {extraTagValues.map((value) => (
+                  <span
+                    key={value}
+                    className="inline-flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-0.5 rounded text-xs"
+                  >
+                    {value}
+                    <button
+                      type="button"
+                      onClick={() => removeExtraTagValue(value)}
+                      className="hover:text-destructive"
+                      disabled={isLoading}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Add new extra tag value */}
+            <div className="flex gap-2">
+              <Input
+                value={newExtraTagValue}
+                onChange={(e) => setNewExtraTagValue(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, addExtraTagValue)}
+                placeholder={language === "it" ? "es. 10bit" : "e.g. 10bit"}
+                disabled={isLoading}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={addExtraTagValue}
+                disabled={isLoading || !newExtraTagValue.trim()}
               >
                 <Plus className="h-4 w-4" />
               </Button>

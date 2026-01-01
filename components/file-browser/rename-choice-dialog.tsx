@@ -10,54 +10,53 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-interface TransferChoiceDialogProps {
+interface RenameChoiceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  operation: "copy" | "move";
   itemCount: number;
-  onNormalTransfer: () => void;
-  onIdentify: () => void;
-  onBatchIdentify?: () => void; // For identifying multiple movies separately
+  onNormalRename: () => void;
+  onIdentifyRename: () => void;
+  onBatchIdentifyRename?: () => void; // For identifying multiple movies separately
 }
 
-export function TransferChoiceDialog({
+export function RenameChoiceDialog({
   open,
   onOpenChange,
-  operation,
   itemCount,
-  onNormalTransfer,
-  onIdentify,
-  onBatchIdentify,
-}: TransferChoiceDialogProps) {
-  const operationText = operation === "copy" ? "Copy" : "Move";
+  onNormalRename,
+  onIdentifyRename,
+  onBatchIdentifyRename,
+}: RenameChoiceDialogProps) {
   const itemText = itemCount === 1 ? "item" : "items";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle>{operationText} Options</DialogTitle>
+          <DialogTitle>Rename Options</DialogTitle>
           <DialogDescription className="text-sm">
-            How would you like to {operation} {itemCount} {itemText}?
+            How would you like to rename {itemCount} {itemText}?
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-2 sm:gap-3 py-2 sm:py-4">
-          <Button
-            variant="outline"
-            className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
-            onClick={onNormalTransfer}
-          >
-            <span className="font-semibold text-sm sm:text-base">{operationText} Normally</span>
-            <span className="text-xs sm:text-sm text-muted-foreground text-left">
-              Transfer to current Media folder
-            </span>
-          </Button>
+          {itemCount === 1 && (
+            <Button
+              variant="outline"
+              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+              onClick={onNormalRename}
+            >
+              <span className="font-semibold text-sm sm:text-base">Rename Manually</span>
+              <span className="text-xs sm:text-sm text-muted-foreground text-left">
+                Enter a new name for the file
+              </span>
+            </Button>
+          )}
 
           <Button
             variant="outline"
             className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
-            onClick={onIdentify}
+            onClick={onIdentifyRename}
           >
             <span className="font-semibold text-sm sm:text-base">Identify with TVDB</span>
             <span className="text-xs sm:text-sm text-muted-foreground text-left">
@@ -65,11 +64,11 @@ export function TransferChoiceDialog({
             </span>
           </Button>
 
-          {onBatchIdentify && itemCount > 1 && (
+          {onBatchIdentifyRename && itemCount > 1 && (
             <Button
               variant="outline"
               className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
-              onClick={onBatchIdentify}
+              onClick={onBatchIdentifyRename}
             >
               <span className="font-semibold text-sm sm:text-base">Identify Movies Separately</span>
               <span className="text-xs sm:text-sm text-muted-foreground text-left">
@@ -77,7 +76,6 @@ export function TransferChoiceDialog({
               </span>
             </Button>
           )}
-
         </div>
 
         <DialogFooter>

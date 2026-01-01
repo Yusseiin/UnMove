@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { validatePath, getBasePath } from "@/lib/path-validator";
-import { parseFileName } from "@/lib/filename-parser";
+import { parseFileName, ParseOptions } from "@/lib/filename-parser";
 import { getMediaInfo, buildQualityInfoFromMedia } from "@/lib/media-info";
 import type { ParsedFileName } from "@/types/tvdb";
+import type { AppConfig } from "@/types/config";
+import { defaultQualityValues, defaultCodecValues, defaultExtraTagValues } from "@/types/config";
 
 // Common video extensions
 const VIDEO_EXTENSIONS = [
@@ -35,7 +37,8 @@ async function scanDirectory(
   dirPath: string,
   scanBasePath: string,
   downloadBasePath: string,
-  files: ScannedFile[]
+  files: ScannedFile[],
+  parseOptions?: ParseOptions
 ): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
@@ -47,12 +50,12 @@ async function scanDirectory(
 
     if (entry.isDirectory()) {
       // Recursively scan subdirectories
-      await scanDirectory(fullPath, scanBasePath, downloadBasePath, files);
+      await scanDirectory(fullPath, scanBasePath, downloadBasePath, files, parseOptions);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
       if (VIDEO_EXTENSIONS.includes(ext)) {
         // Parse the filename to extract show info
-        const parsed = parseFileName(entry.name);
+        const parsed = parseFileName(entry.name, parseOptions);
 
         // Also try to extract season from folder path
         if (parsed.season === undefined) {
@@ -74,10 +77,21 @@ async function scanDirectory(
   }
 }
 
+// Helper to read config
+async function getConfig(): Promise<Partial<AppConfig>> {
+  try {
+    const configPath = process.env.CONFIG_PATH || path.join(process.cwd(), "unmove-config.json");
+    const content = await fs.readFile(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return {};
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sourcePath, sourcePaths } = body;
+    const { sourcePath, sourcePaths, pane = "downloads" } = body;
 
     // Support both single path and multiple paths
     const pathsToScan: string[] = sourcePaths || (sourcePath ? [sourcePath] : []);
@@ -89,13 +103,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const downloadBase = getBasePath("downloads");
+    // Read config for custom quality/codec/extraTag values
+    const config = await getConfig();
+    const parseOptions: ParseOptions = {
+      qualityValues: config.qualityValues ?? defaultQualityValues,
+      codecValues: config.codecValues ?? defaultCodecValues,
+      extraTagValues: config.extraTagValues ?? defaultExtraTagValues,
+    };
+
+    // Use the appropriate base path based on pane
+    const basePath = getBasePath(pane === "media" ? "media" : "downloads");
     const files: ScannedFile[] = [];
 
     // Process each path
     for (const sPath of pathsToScan) {
-      // Validate path is within downloads
-      const validation = await validatePath(downloadBase, sPath);
+      // Validate path is within the appropriate base
+      const validation = await validatePath(basePath, sPath);
 
       if (!validation.valid) {
         // Skip invalid paths but continue with others
@@ -110,16 +133,16 @@ export async function POST(request: NextRequest) {
 
         if (stats.isDirectory()) {
           // Scan directory recursively
-          await scanDirectory(fullPath, fullPath, downloadBase, files);
+          await scanDirectory(fullPath, fullPath, basePath, files, parseOptions);
         } else if (stats.isFile()) {
           // Single file
           const ext = path.extname(fullPath).toLowerCase();
           if (VIDEO_EXTENSIONS.includes(ext)) {
-            const parsed = parseFileName(path.basename(fullPath));
-            // Path relative to downloads base for use in batch-rename API
-            const pathFromDownloads = "/" + path.relative(downloadBase, fullPath).replace(/\\/g, "/");
+            const parsed = parseFileName(path.basename(fullPath), parseOptions);
+            // Path relative to base for use in batch-rename API
+            const pathFromBase = "/" + path.relative(basePath, fullPath).replace(/\\/g, "/");
             files.push({
-              path: pathFromDownloads,
+              path: pathFromBase,
               name: path.basename(fullPath),
               relativePath: path.basename(fullPath),
               parsed,
@@ -157,7 +180,7 @@ export async function POST(request: NextRequest) {
       try {
         // Probe the first file (all files in a batch typically have the same quality)
         const firstFile = files[0];
-        const validation = await validatePath(downloadBase, firstFile.path);
+        const validation = await validatePath(basePath, firstFile.path);
         if (validation.valid) {
           const mediaInfo = await getMediaInfo(validation.absolutePath);
           if (mediaInfo) {

@@ -68,6 +68,7 @@ const SERIES_TOKENS = [
   { token: "{episodeTitle}", description: "Episode title", example: "Pilot" },
   { token: "{quality}", description: "Resolution", example: "1080p" },
   { token: "{codec}", description: "Video codec", example: "H264" },
+  { token: "{extraTags}", description: "Extra tags (HDR, 10bit, ITA...)", example: "10bit.HDR" },
 ] as const;
 
 const MOVIE_TOKENS = [
@@ -75,6 +76,7 @@ const MOVIE_TOKENS = [
   { token: "{year}", description: "Movie year", example: "2010" },
   { token: "{quality}", description: "Resolution", example: "1080p" },
   { token: "{codec}", description: "Video codec", example: "H264" },
+  { token: "{extraTags}", description: "Extra tags (HDR, 10bit, ITA...)", example: "10bit.HDR" },
 ] as const;
 
 // Example data for preview
@@ -86,6 +88,7 @@ const EXAMPLE_SERIES = {
   episodeTitle: "Gray Matter",
   quality: "1080p",
   codec: "H264",
+  extraTags: "10bit.HDR",
   ext: "mkv",
 };
 
@@ -94,6 +97,7 @@ const EXAMPLE_MOVIE = {
   year: "2010",
   quality: "1080p",
   codec: "H264",
+  extraTags: "10bit.HDR",
   ext: "mkv",
 };
 
@@ -122,16 +126,20 @@ function applySeriesTemplate(
       .replace(/\{episodeTitle\}/g, data.episodeTitle)
       .replace(/\{quality\}/g, data.quality)
       .replace(/\{codec\}/g, data.codec)
+      .replace(/\{extraTags\}/g, data.extraTags)
       // Clean up empty parentheses/brackets from missing values
       .replace(/\s*\(\s*\)/g, "")
       .replace(/\s*\[\s*\]/g, "")
+      // Clean up trailing/leading separators
       .replace(/\s+-\s*$/g, "")
       .replace(/^\s*-\s+/g, "")
+      // Clean up multiple consecutive spaces
+      .replace(/\s+/g, " ")
       .trim();
   };
 
   const folder = replaceTokens(template.folderTemplate);
-  const file = replaceTokens(template.fileTemplate) + `.${data.ext}`;
+  const file = replaceTokens(template.fileTemplate).trim() + `.${data.ext}`;
 
   return {
     folder,
@@ -150,15 +158,19 @@ function applyMovieTemplate(
       .replace(/\{year\}/g, data.year)
       .replace(/\{quality\}/g, data.quality)
       .replace(/\{codec\}/g, data.codec)
+      .replace(/\{extraTags\}/g, data.extraTags)
       // Clean up empty parentheses/brackets from missing values
       .replace(/\s*\(\s*\)/g, "")
       .replace(/\s*\[\s*\]/g, "")
+      // Clean up trailing/leading separators
       .replace(/\s+-\s*$/g, "")
       .replace(/^\s*-\s+/g, "")
+      // Clean up multiple consecutive spaces
+      .replace(/\s+/g, " ")
       .trim();
   };
 
-  const file = replaceTokens(template.fileTemplate) + `.${data.ext}`;
+  const file = replaceTokens(template.fileTemplate).trim() + `.${data.ext}`;
 
   // Determine folder based on folderStructure
   let folder = "";

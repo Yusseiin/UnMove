@@ -90,7 +90,44 @@ export interface AppConfig {
   // Global naming templates (folders inherit these unless overridden)
   seriesNamingTemplate?: SeriesNamingTemplate;
   movieNamingTemplate?: MovieNamingTemplate;
+  // Custom quality values to detect in filenames (e.g., ["1080p", "720p", "4K", "2160p"])
+  qualityValues?: string[];
+  // Custom codec values to detect in filenames (e.g., ["x264", "x265", "H264", "H265", "HEVC"])
+  codecValues?: string[];
+  // Custom extra tag values to detect in filenames (e.g., ["10bit", "HDR", "ITA", "ENG"])
+  extraTagValues?: string[];
 }
+
+// Default quality values to detect in filenames
+export const defaultQualityValues = [
+  "2160p", "4K", "UHD",
+  "1080p", "1080i", "FHD",
+  "720p", "HD",
+  "480p", "SD",
+  "576p", "576i",
+];
+
+// Default codec values to detect in filenames
+export const defaultCodecValues = [
+  "x264", "x265",
+  "H264", "H.264", "AVC",
+  "H265", "H.265", "HEVC",
+  "AV1", "VP9",
+];
+
+// Default extra tag values to detect in filenames (HDR, bit depth, languages, etc.)
+export const defaultExtraTagValues = [
+  // HDR formats
+  "HDR", "HDR10", "HDR10+", "DV", "Dolby Vision", "SDR",
+  // Bit depth
+  "10bit", "10-bit", "8bit", "8-bit",
+  // Languages
+  "ITA", "ENG", "SPA", "FRE", "GER", "JPN", "KOR", "CHI", "RUS", "POR",
+  // Audio
+  "Multi", "Dual", "Dub", "Dubbed",
+  // Subtitles
+  "Sub", "Subs", "Subbed",
+];
 
 export const defaultConfig: AppConfig = {
   language: "en",
@@ -98,6 +135,9 @@ export const defaultConfig: AppConfig = {
   moviesBaseFolders: [],
   seriesNamingTemplate: defaultSeriesNamingTemplate,
   movieNamingTemplate: defaultMovieNamingTemplate,
+  qualityValues: defaultQualityValues,
+  codecValues: defaultCodecValues,
+  extraTagValues: defaultExtraTagValues,
 };
 
 // Localized strings

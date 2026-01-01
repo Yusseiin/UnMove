@@ -92,7 +92,8 @@ interface BatchIdentifyDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filePaths: string[];
-  operation: "copy" | "move";
+  pane?: "downloads" | "media"; // Which pane the files are from
+  operation: "copy" | "move" | "rename";
   onConfirm: (newPath: string) => void;
   isLoading?: boolean;
   language?: Language;
@@ -105,6 +106,7 @@ export function BatchIdentifyDialog({
   open,
   onOpenChange,
   filePaths,
+  pane = "downloads",
   operation,
   onConfirm,
   isLoading: externalLoading,
@@ -151,13 +153,13 @@ export function BatchIdentifyDialog({
     return folder?.movieNamingTemplate || movieNamingTemplate;
   }, [selectedBaseFolder, moviesBaseFolders, movieNamingTemplate]);
 
-  // Check if template uses quality/codec tokens
+  // Check if template uses quality/codec/extraTags tokens
   const templateUsesQuality = useCallback((template: MovieNamingTemplate | undefined): boolean => {
     if (!template) return false;
     const fileTemplate = template.fileTemplate || "";
     const folderTemplate = template.folderTemplate || "";
-    return fileTemplate.includes("{quality}") || fileTemplate.includes("{codec}") ||
-           folderTemplate.includes("{quality}") || folderTemplate.includes("{codec}");
+    return fileTemplate.includes("{quality}") || fileTemplate.includes("{codec}") || fileTemplate.includes("{extraTags}") ||
+           folderTemplate.includes("{quality}") || folderTemplate.includes("{codec}") || folderTemplate.includes("{extraTags}");
   }, []);
 
   // Processing state
@@ -262,7 +264,7 @@ export function BatchIdentifyDialog({
       const response = await fetch("/api/files/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourcePaths: filePaths }),
+        body: JSON.stringify({ sourcePaths: filePaths, pane }),
       });
 
       const data = await response.json();
@@ -339,17 +341,24 @@ export function BatchIdentifyDialog({
               const template = getMovieNamingTemplate();
               const needsQuality = templateUsesQuality(template);
               const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
-              const { quality, codec } = splitQualityInfo(qualityInfo);
+              const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
               const result = applyMovieTemplate(template, {
                 movieName,
                 year,
                 quality,
                 codec,
+                extraTags,
                 extension: ext,
               });
 
-              const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-              const newPath = `${basePath}${result.fullPath}`;
+              let newPath: string;
+              if (operation === "rename") {
+                // For rename operation, only use the filename (stay in same folder)
+                newPath = result.fileName;
+              } else {
+                const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
+                newPath = `${basePath}${result.fullPath}`;
+              }
 
               return {
                 ...fi,
@@ -409,17 +418,24 @@ export function BatchIdentifyDialog({
         const template = getMovieNamingTemplate();
         const needsQuality = templateUsesQuality(template);
         const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
-        const { quality, codec } = splitQualityInfo(qualityInfo);
+        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
         const pathResult = applyMovieTemplate(template, {
           movieName,
           year,
           quality,
           codec,
+          extraTags,
           extension: ext,
         });
 
-        const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-        const newPath = `${basePath}${pathResult.fullPath}`;
+        let newPath: string;
+        if (operation === "rename") {
+          // For rename operation, only use the filename (stay in same folder)
+          newPath = pathResult.fileName;
+        } else {
+          const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
+          newPath = `${basePath}${pathResult.fullPath}`;
+        }
 
         return {
           ...fi,
@@ -477,7 +493,7 @@ export function BatchIdentifyDialog({
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
         const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
-        const { quality, codec } = splitQualityInfo(qualityInfo);
+        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
 
         // Apply template to generate path
         const result = applyMovieTemplate(template, {
@@ -485,11 +501,18 @@ export function BatchIdentifyDialog({
           year,
           quality,
           codec,
+          extraTags,
           extension: ext,
         });
 
-        const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
-        const newPath = `${basePath}${result.fullPath}`;
+        let newPath: string;
+        if (operation === "rename") {
+          // For rename operation, only use the filename (stay in same folder)
+          newPath = result.fileName;
+        } else {
+          const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
+          newPath = `${basePath}${result.fullPath}`;
+        }
 
         return {
           ...fi,
@@ -525,7 +548,7 @@ export function BatchIdentifyDialog({
       const response = await fetch("/api/files/batch-rename-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files, operation, overwrite: true }),
+        body: JSON.stringify({ files, operation, overwrite: true, pane }),
       });
 
       if (!response.ok || !response.body) {
@@ -684,8 +707,8 @@ export function BatchIdentifyDialog({
             </div>
           )}
 
-          {/* Base folder selector */}
-          {!isScanning && fileIdentifications.length > 0 && (
+          {/* Base folder selector - hide for rename operation */}
+          {!isScanning && fileIdentifications.length > 0 && operation !== "rename" && (
             <div className="space-y-1 shrink-0">
               <label className="text-xs sm:text-sm font-medium">
                 {language === "it" ? "Cartella di destinazione" : "Destination Folder"}
@@ -1098,10 +1121,14 @@ export function BatchIdentifyDialog({
                 ? language === "it"
                   ? "Copia..."
                   : "Copying..."
+                : operation === "move"
+                ? language === "it"
+                  ? "Sposta..."
+                  : "Moving..."
                 : language === "it"
-                ? "Sposta..."
-                : "Moving..."
-              : `${operation === "copy" ? (language === "it" ? "Copia" : "Copy") : language === "it" ? "Sposta" : "Move"} ${processableCount} file${processableCount !== 1 ? "s" : ""}${existingNotConfirmedCount > 0 ? ` (${existingNotConfirmedCount} ${language === "it" ? "saltati" : "skip"})` : ""}`}
+                  ? "Rinomina..."
+                  : "Renaming..."
+              : `${operation === "copy" ? (language === "it" ? "Copia" : "Copy") : operation === "move" ? (language === "it" ? "Sposta" : "Move") : (language === "it" ? "Rinomina" : "Rename")} ${processableCount} file${processableCount !== 1 ? "s" : ""}${existingNotConfirmedCount > 0 ? ` (${existingNotConfirmedCount} ${language === "it" ? "saltati" : "skip"})` : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
