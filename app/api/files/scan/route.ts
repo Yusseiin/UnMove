@@ -77,10 +77,23 @@ async function scanDirectory(
   }
 }
 
+// Config file path - must match the logic in /api/config/route.ts
+function getConfigPath(): string {
+  const envPath = process.env.CONFIG_PATH;
+  if (envPath) {
+    // If it's a directory, append the filename
+    if (!envPath.endsWith(".json")) {
+      return path.join(envPath, "unmove-config.json");
+    }
+    return envPath;
+  }
+  return path.join(process.cwd(), "unmove-config.json");
+}
+
 // Helper to read config
 async function getConfig(): Promise<Partial<AppConfig>> {
   try {
-    const configPath = process.env.CONFIG_PATH || path.join(process.cwd(), "unmove-config.json");
+    const configPath = getConfigPath();
     const content = await fs.readFile(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
@@ -173,23 +186,18 @@ export async function POST(request: NextRequest) {
       return epA - epB;
     });
 
-    // Always probe ffprobe for quality/codec info
+    // Probe each file with ffprobe for quality/codec info
     // The frontend decides whether to use ffprobe result or filename parsing
     // based on user settings (alwaysUseFFprobe option)
-    if (files.length > 0) {
+    for (const file of files) {
       try {
-        // Probe the first file (all files in a batch typically have the same quality)
-        const firstFile = files[0];
-        const validation = await validatePath(basePath, firstFile.path);
+        const validation = await validatePath(basePath, file.path);
         if (validation.valid) {
           const mediaInfo = await getMediaInfo(validation.absolutePath);
           if (mediaInfo) {
             const qualityFromMedia = buildQualityInfoFromMedia(mediaInfo);
             if (qualityFromMedia) {
-              // Set mediaInfoQuality for all files (frontend decides which to use)
-              for (const file of files) {
-                file.mediaInfoQuality = qualityFromMedia;
-              }
+              file.mediaInfoQuality = qualityFromMedia;
             }
           }
         }

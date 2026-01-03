@@ -9,67 +9,7 @@ export interface ParseOptions {
   extraTagValues?: string[];
 }
 
-// Quality indicators
-const QUALITY_PATTERNS = [
-  "2160p",
-  "4k",
-  "uhd",
-  "1080p",
-  "1080i",
-  "720p",
-  "576p",
-  "480p",
-  "360p",
-  "fullhd",
-  "full-hd",
-  "hd",
-  "sd",
-  "hdtv",
-  "pdtv",
-  "sdtv",
-  "dsr",
-  "dsrip",
-  "satrip",
-  "dvb",
-  "bluray",
-  "blu-ray",
-  "bdrip",
-  "brrip",
-  "bdremux",
-  "dvdrip",
-  "dvdscr",
-  "dvd",
-  "r5",
-  "webrip",
-  "web-rip",
-  "web-dl",
-  "webdl",
-  "web",
-  "hdrip",
-  "hdcam",
-  "hdts",
-  "hd-ts",
-  "camrip",
-  "cam-rip",
-  "cam",
-  "ts",
-  "telesync",
-  "tc",
-  "telecine",
-  "scr",
-  "screener",
-  "dvdscreener",
-  "r6",
-  "ppvrip",
-  "tvrip",
-  "tvsync",
-  "vhsrip",
-  "vodrip",
-  "workprint",
-  "wp",
-];
-
-// Source/release indicators to remove
+// Source/release indicators to remove from filenames during parsing
 const RELEASE_PATTERNS = [
   // Codecs
   "x264",
@@ -153,70 +93,27 @@ const RELEASE_PATTERNS = [
 // Common scene group patterns (at end of filename)
 const GROUP_PATTERN = /-[a-z0-9]+$/i;
 
-// Patterns to preserve in quality info string (resolution + codec)
-const PRESERVE_QUALITY_PATTERNS = [
-  // Resolution
-  "2160p",
-  "4k",
-  "uhd",
-  "1080p",
-  "1080i",
-  "720p",
-  "576p",
-  "480p",
-  "fullhd",
-  "full-hd",
-  // Video codecs
-  "x264",
-  "x265",
-  "h264",
-  "h265",
-  "h\\.264",
-  "h\\.265",
-  "hevc",
-  "avc",
-  "xvid",
-  "divx",
-  // HDR
-  "hdr",
-  "hdr10",
-  "hdr10\\+",
-  "dolby vision",
-  "dv",
-  "sdr",
-  "10bit",
-  "8bit",
-];
-
 /**
- * Build quality and codec patterns from custom values
+ * Build quality and codec patterns from config values only (no hardcoded fallbacks)
  */
 function buildPatterns(options?: ParseOptions): {
   qualityPatterns: string[];
   codecPatterns: string[];
   preservePatterns: string[];
 } {
-  // Use custom values if provided, otherwise use defaults
+  // Use config values only - if empty, nothing will be detected
   const customQuality = options?.qualityValues ?? defaultQualityValues;
   const customCodec = options?.codecValues ?? defaultCodecValues;
   const customExtraTags = options?.extraTagValues ?? defaultExtraTagValues;
 
-  // Combine custom with base hardcoded patterns (custom first for priority)
-  const qualityPatterns = [
-    ...customQuality.map(v => escapeRegex(v)),
-    ...QUALITY_PATTERNS,
-  ];
-
-  const codecPatterns = [
-    ...customCodec.map(v => escapeRegex(v)),
-  ];
+  const qualityPatterns = customQuality.map(v => escapeRegex(v));
+  const codecPatterns = customCodec.map(v => escapeRegex(v));
 
   // Preserve patterns include quality, codec, and extra tags for the qualityInfo string
   const preservePatterns = [
     ...customQuality.map(v => escapeRegex(v)),
     ...customCodec.map(v => escapeRegex(v)),
     ...customExtraTags.map(v => escapeRegex(v)),
-    ...PRESERVE_QUALITY_PATTERNS,
   ];
 
   return { qualityPatterns, codecPatterns, preservePatterns };
@@ -552,33 +449,6 @@ export function generateMoviePath(
 // TEMPLATE-BASED NAMING FUNCTIONS
 // ============================================================================
 
-// Resolution patterns (quality) - base patterns
-const RESOLUTION_PATTERNS = [
-  "2160p", "4k", "uhd", "1080p", "1080i", "720p", "576p", "480p", "360p",
-  "fullhd", "full-hd", "hd", "sd"
-];
-
-// Video codec patterns - base patterns
-const CODEC_PATTERNS = [
-  "x264", "x265", "h264", "h265", "h.264", "h.265", "hevc", "avc", "xvid", "divx",
-  "av1", "vp9", "mpeg2", "mpeg4"
-];
-
-// Extra tag patterns - base patterns (HDR, bit depth, languages, etc.)
-const EXTRA_TAG_PATTERNS = [
-  // HDR formats
-  "hdr", "hdr10", "hdr10+", "dolby vision", "dv", "sdr",
-  // Bit depth
-  "10bit", "10-bit", "8bit", "8-bit",
-  // Languages (common)
-  "ita", "eng", "spa", "fre", "ger", "jpn", "kor", "chi", "rus", "por",
-  "italian", "english", "spanish", "french", "german", "japanese", "korean", "chinese", "russian", "portuguese",
-  // Audio
-  "multi", "dual", "dub", "dubbed",
-  // Subtitles
-  "sub", "subs", "subbed",
-];
-
 /**
  * Split a qualityInfo string (e.g., "1080p.H264.10bit.ITA") into separate quality, codec, and extra tags
  * @param qualityInfo - The quality info string to split
@@ -592,27 +462,15 @@ export function splitQualityInfo(
     return { quality: "", codec: "", extraTags: "" };
   }
 
-  // Build pattern lists including custom values
+  // Use config values only - if empty, nothing will be detected
   const customQuality = options?.qualityValues ?? defaultQualityValues;
   const customCodec = options?.codecValues ?? defaultCodecValues;
   const customExtraTags = options?.extraTagValues ?? defaultExtraTagValues;
 
-  // Combine custom with base patterns (custom values normalized to lowercase for comparison)
-  const allResolutions = [
-    ...customQuality.map(v => v.toLowerCase()),
-    ...RESOLUTION_PATTERNS,
-  ];
-  const allCodecs = [
-    ...customCodec.map(v => v.toLowerCase()),
-    ...CODEC_PATTERNS,
-  ];
-  const allExtraTags = [
-    ...customExtraTags.map(v => v.toLowerCase()),
-    ...EXTRA_TAG_PATTERNS,
-  ];
-
   // Split by common separators
   const parts = qualityInfo.split(/[.\s_-]+/);
+
+  const allResolutions = customQuality.map(v => v.toLowerCase());
 
   let quality = "";
   let codec = "";
@@ -620,30 +478,49 @@ export function splitQualityInfo(
 
   for (const part of parts) {
     const lowerPart = part.toLowerCase();
+    let matched = false;
 
     // Check if it's a resolution/quality (only take the first one)
     if (!quality && allResolutions.some(p => lowerPart === p || lowerPart === p.replace("-", ""))) {
       quality = part;
+      matched = true;
     }
+
     // Check if it's a codec (only take the first one)
-    else if (!codec && allCodecs.some(p => lowerPart === p || lowerPart === p.replace(".", ""))) {
-      // Normalize codec format (H.264 -> H264, h265 -> H265)
-      codec = part.replace(/\./g, "").toUpperCase();
-      // Normalize x264/x265 to H264/H265 style
-      if (codec.startsWith("X")) {
-        codec = "H" + codec.slice(1);
+    // Also check for codec aliases (h264↔x264, h265↔x265, hevc↔h265, avc↔h264)
+    if (!matched && !codec) {
+      const normalizedPart = lowerPart.replace(".", "");
+      // Build list of equivalent codec names to check
+      const codecAliases: string[] = [normalizedPart];
+      if (normalizedPart === "h264" || normalizedPart === "x264" || normalizedPart === "avc") {
+        codecAliases.push("h264", "x264", "avc");
+      } else if (normalizedPart === "h265" || normalizedPart === "x265" || normalizedPart === "hevc") {
+        codecAliases.push("h265", "x265", "hevc");
+      }
+
+      // Find the matching codec from the user's config (to use their preferred format)
+      const matchedCodec = customCodec.find(p =>
+        codecAliases.includes(p.toLowerCase()) || codecAliases.includes(p.toLowerCase().replace(".", ""))
+      );
+
+      if (matchedCodec) {
+        // Use the user's preferred format from config (e.g., if config has "H264", use "H264")
+        codec = matchedCodec;
+        matched = true;
       }
     }
+
     // Check if it's an extra tag (collect all matching)
-    else if (allExtraTags.some(p => lowerPart === p || lowerPart === p.replace("-", ""))) {
-      // Preserve original case but normalize common patterns
-      let normalizedTag = part;
-      // Normalize 10-bit to 10bit
-      if (lowerPart === "10-bit") normalizedTag = "10bit";
-      if (lowerPart === "8-bit") normalizedTag = "8bit";
-      // Avoid duplicates
-      if (!extraTagParts.some(t => t.toLowerCase() === normalizedTag.toLowerCase())) {
-        extraTagParts.push(normalizedTag);
+    if (!matched) {
+      // Find the matching tag from config to use the user's preferred case
+      const matchedTag = customExtraTags.find(p =>
+        lowerPart === p.toLowerCase() || lowerPart === p.toLowerCase().replace("-", "")
+      );
+      if (matchedTag) {
+        // Avoid duplicates
+        if (!extraTagParts.some(t => t.toLowerCase() === matchedTag.toLowerCase())) {
+          extraTagParts.push(matchedTag);
+        }
       }
     }
   }
@@ -713,11 +590,18 @@ export function applySeriesTemplate(
       // Clean up empty parentheses/brackets from missing values
       .replace(/\s*\(\s*\)/g, "")
       .replace(/\s*\[\s*\]/g, "")
+      // Clean up trailing/leading spaces inside brackets and parentheses
+      .replace(/\[\s+/g, "[")  // Remove spaces after [
+      .replace(/\s+\]/g, "]")  // Remove spaces before ]
+      .replace(/\(\s+/g, "(")  // Remove spaces after (
+      .replace(/\s+\)/g, ")")  // Remove spaces before )
       // Clean up trailing/leading separators
       .replace(/\s+-\s*$/g, "") // Remove trailing " -"
       .replace(/^\s*-\s+/g, "") // Remove leading "- "
       // Clean up multiple consecutive spaces
       .replace(/\s+/g, " ")
+      // Clean up multiple consecutive dots
+      .replace(/\.{2,}/g, ".")
       .trim();
   };
 
@@ -729,8 +613,8 @@ export function applySeriesTemplate(
     ? replaceTokens(t.specialsFolderTemplate)
     : replaceTokens(t.seasonFolderTemplate);
 
-  // Generate filename (without extension)
-  const fileNameWithoutExt = replaceTokens(t.fileTemplate).trim();
+  // Generate filename (without extension) - also remove trailing dots/spaces
+  const fileNameWithoutExt = replaceTokens(t.fileTemplate).replace(/[\s.]+$/g, "").replace(/^[\s.]+/g, "");
   const fileName = `${fileNameWithoutExt}.${data.extension}`;
 
   // Generate full path
@@ -766,16 +650,23 @@ export function applyMovieTemplate(
       // Clean up empty parentheses/brackets from missing values
       .replace(/\s*\(\s*\)/g, "")
       .replace(/\s*\[\s*\]/g, "")
+      // Clean up trailing/leading spaces inside brackets and parentheses
+      .replace(/\[\s+/g, "[")  // Remove spaces after [
+      .replace(/\s+\]/g, "]")  // Remove spaces before ]
+      .replace(/\(\s+/g, "(")  // Remove spaces after (
+      .replace(/\s+\)/g, ")")  // Remove spaces before )
       // Clean up trailing/leading separators
       .replace(/\s+-\s*$/g, "") // Remove trailing " -"
       .replace(/^\s*-\s+/g, "") // Remove leading "- "
       // Clean up multiple consecutive spaces
       .replace(/\s+/g, " ")
+      // Clean up multiple consecutive dots
+      .replace(/\.{2,}/g, ".")
       .trim();
   };
 
-  // Generate filename (without extension)
-  const fileNameWithoutExt = replaceTokens(t.fileTemplate).trim();
+  // Generate filename (without extension) - also remove trailing dots/spaces
+  const fileNameWithoutExt = replaceTokens(t.fileTemplate).replace(/[\s.]+$/g, "").replace(/^[\s.]+/g, "");
   const fileName = `${fileNameWithoutExt}.${data.extension}`;
 
   // Generate folder based on folderStructure setting

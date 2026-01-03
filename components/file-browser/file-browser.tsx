@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback, memo } from "react";
+import { useState, useRef, useCallback, memo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import {
   ResizablePanelGroup,
@@ -27,6 +28,7 @@ import type { PaneType, OperationResponse, FileEntry } from "@/types/files";
 interface PaneRef {
   refresh: () => void;
   clearSelection: () => void;
+  navigate: (path: string) => void;
   currentPath: string;
 }
 
@@ -36,6 +38,7 @@ interface FileBrowserProps {
 }
 
 export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserProps) {
+  const router = useRouter();
   const isMobile = useIsMobile();
   const { config, setLanguage, updateConfig, isLoading: configLoading } = useConfig();
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
@@ -72,7 +75,16 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
   const [renameChoiceEntries, setRenameChoiceEntries] = useState<FileEntry[]>([]);
 
   // Mobile view state - which pane to show
-  const [mobileActivePane, setMobileActivePane] = useState<PaneType>("downloads");
+  // Initialize from sessionStorage if returning from multi-series
+  const getInitialMobilePane = (): PaneType => {
+    if (typeof window === "undefined") return "downloads";
+    const returnPane = sessionStorage.getItem("returnToPane");
+    if (returnPane === "downloads" || returnPane === "media") {
+      return returnPane;
+    }
+    return "downloads";
+  };
+  const [mobileActivePane, setMobileActivePane] = useState<PaneType>(getInitialMobilePane);
 
   // Loading states
   const [isOperationLoading, setIsOperationLoading] = useState(false);
@@ -199,6 +211,22 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
     setIdentifyOperation("rename");
     setBatchIdentifyDialogOpen(true);
   }, []);
+
+  // Handle multi-series rename choice (multiple TV series at once) - navigates to dedicated page
+  const handleMultiSeriesRenameChoice = useCallback(() => {
+    setRenameChoiceOpen(false);
+    // Store file paths in sessionStorage for the new page
+    sessionStorage.setItem("multiSeriesFilePaths", JSON.stringify(identifyFilePaths));
+    // Store current path so we can return to it
+    const currentPath = renamePane === "downloads"
+      ? downloadsPaneRef.current?.currentPath
+      : mediaPaneRef.current?.currentPath;
+    if (currentPath) {
+      sessionStorage.setItem("returnToPath", currentPath);
+    }
+    // Navigate to the multi-series identify page
+    router.push(`/identify-multi-series?pane=${renamePane}&operation=rename`);
+  }, [identifyFilePaths, renamePane, router]);
 
   // Handle batch identify confirm
   const handleBatchIdentifyConfirm = useCallback(() => {
@@ -592,6 +620,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onNormalRename={handleNormalRenameChoice}
         onIdentifyRename={handleTvdbRenameChoice}
         onBatchIdentifyRename={handleBatchTvdbRenameChoice}
+        onMultiSeriesRename={handleMultiSeriesRenameChoice}
       />
 
       <DestinationPicker
@@ -652,6 +681,9 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         moviesBaseFolders={config.moviesBaseFolders}
         seriesNamingTemplate={config.seriesNamingTemplate}
         movieNamingTemplate={config.movieNamingTemplate}
+        qualityValues={config.qualityValues}
+        codecValues={config.codecValues}
+        extraTagValues={config.extraTagValues}
       />
 
       <BatchIdentifyDialog
@@ -665,6 +697,9 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         language={config.language}
         moviesBaseFolders={config.moviesBaseFolders}
         movieNamingTemplate={config.movieNamingTemplate}
+        qualityValues={config.qualityValues}
+        codecValues={config.codecValues}
+        extraTagValues={config.extraTagValues}
       />
 
       <SettingsDialog
@@ -726,7 +761,7 @@ const FilePane = memo(function FilePane({
   } = useFileBrowser(pane);
 
   // Update ref whenever currentPath or refresh changes
-  paneRef({ refresh, clearSelection, currentPath });
+  paneRef({ refresh, clearSelection, navigate, currentPath });
 
   const handleSelectAll = useCallback(() => {
     if (selectedPaths.size === entries.length) {

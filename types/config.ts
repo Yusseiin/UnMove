@@ -115,19 +115,8 @@ export const defaultCodecValues = [
   "AV1", "VP9",
 ];
 
-// Default extra tag values to detect in filenames (HDR, bit depth, languages, etc.)
-export const defaultExtraTagValues = [
-  // HDR formats
-  "HDR", "HDR10", "HDR10+", "DV", "Dolby Vision", "SDR",
-  // Bit depth
-  "10bit", "10-bit", "8bit", "8-bit",
-  // Languages
-  "ITA", "ENG", "SPA", "FRE", "GER", "JPN", "KOR", "CHI", "RUS", "POR",
-  // Audio
-  "Multi", "Dual", "Dub", "Dubbed",
-  // Subtitles
-  "Sub", "Subs", "Subbed",
-];
+// Default extra tag values - empty by default, user must configure in their config file
+export const defaultExtraTagValues: string[] = [];
 
 export const defaultConfig: AppConfig = {
   language: "en",

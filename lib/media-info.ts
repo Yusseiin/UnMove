@@ -9,6 +9,7 @@ export interface MediaInfo {
   resolution?: string; // e.g., "1920x1080"
   width?: number;
   height?: number;
+  interlaced?: boolean; // true if video is interlaced (e.g., 1080i)
   audioCodec?: string; // e.g., "aac", "ac3", "dts"
   audioBitrate?: number;
   duration?: number; // in seconds
@@ -35,20 +36,33 @@ const VIDEO_CODEC_MAP: Record<string, string> = {
   divx: "DivX",
 };
 
-// Try to detect encoder from codec tag or other metadata
-function detectEncoder(codecName: string, codecTag: string | undefined): string | undefined {
+// Try to detect encoder from codec tag, writing library, or other metadata
+function detectEncoder(
+  codecName: string,
+  codecTag: string | undefined,
+  writingLibrary: string | undefined
+): string | undefined {
   const tag = codecTag?.toLowerCase() || "";
   const codec = codecName.toLowerCase();
+  const library = writingLibrary?.toLowerCase() || "";
 
-  // x264/x265 detection based on codec tag
-  if (tag.includes("x264") || tag === "avc1") {
+  // x264/x265 detection from writing library (most reliable)
+  if (library.includes("x264")) {
+    return "x264";
+  }
+  if (library.includes("x265")) {
+    return "x265";
+  }
+
+  // Check codec tag for encoder hints
+  if (tag.includes("x264")) {
     return "x264";
   }
   if (tag.includes("x265")) {
     return "x265";
   }
 
-  // Return normalized codec name
+  // Return normalized codec name (H264, H265, etc.)
   return VIDEO_CODEC_MAP[codec];
 }
 
@@ -81,9 +95,12 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo | undefi
     // Video codec
     const codecName = videoStream.codec_name?.toLowerCase();
     const codecTag = videoStream.codec_tag_string;
+    // Writing library often contains encoder info like "x264" or "x265"
+    const writingLibrary = videoStream.tags?.encoder || videoStream.tags?.ENCODER ||
+                           format.tags?.encoder || format.tags?.ENCODER;
 
     result.videoCodec = VIDEO_CODEC_MAP[codecName] || codecName?.toUpperCase();
-    result.videoCodecTag = detectEncoder(codecName, codecTag);
+    result.videoCodecTag = detectEncoder(codecName, codecTag, writingLibrary);
 
     // Resolution
     if (videoStream.width && videoStream.height) {
@@ -91,6 +108,12 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo | undefi
       result.height = videoStream.height;
       result.resolution = `${videoStream.width}x${videoStream.height}`;
     }
+
+    // Interlaced detection
+    const fieldOrder = videoStream.field_order?.toLowerCase() || "";
+    result.interlaced = fieldOrder === "tt" || fieldOrder === "bb" ||
+                        fieldOrder === "tb" || fieldOrder === "bt" ||
+                        fieldOrder.includes("interlaced");
 
     // HDR detection
     const colorTransfer = videoStream.color_transfer?.toLowerCase() || "";
@@ -130,19 +153,23 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo | undefi
 export function buildQualityInfoFromMedia(mediaInfo: MediaInfo): string {
   const parts: string[] = [];
 
-  // Add resolution
-  if (mediaInfo.height) {
-    if (mediaInfo.height >= 2160) {
-      parts.push("2160p");
-    } else if (mediaInfo.height >= 1080) {
-      parts.push("1080p");
-    } else if (mediaInfo.height >= 720) {
-      parts.push("720p");
-    } else if (mediaInfo.height >= 576) {
-      parts.push("576p");
-    } else if (mediaInfo.height >= 480) {
-      parts.push("480p");
-    }
+  // Add resolution with interlaced suffix (i) or progressive (p)
+  // Check both width and height to handle cropped content
+  // (e.g., 1920x960 is still 1080p source, 1920x800 ultrawide is 1080p)
+  const suffix = mediaInfo.interlaced ? "i" : "p";
+  const width = mediaInfo.width || 0;
+  const height = mediaInfo.height || 0;
+
+  if (width >= 3600 || height >= 2000) {
+    parts.push(`2160${suffix}`);
+  } else if (width >= 1800 || height >= 1000) {
+    parts.push(`1080${suffix}`);
+  } else if (width >= 1200 || height >= 700) {
+    parts.push(`720${suffix}`);
+  } else if (width >= 1000 || height >= 560) {
+    parts.push(`576${suffix}`);
+  } else if (width >= 640 || height >= 460) {
+    parts.push(`480${suffix}`);
   }
 
   // Add codec (prefer encoder tag like x264/x265 over generic H264/H265)

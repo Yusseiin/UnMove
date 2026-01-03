@@ -59,9 +59,11 @@ export function TransferChoiceDialog({
             className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
             onClick={onIdentify}
           >
-            <span className="font-semibold text-sm sm:text-base">Identify with TVDB</span>
+            <span className="font-semibold text-sm sm:text-base">
+              {itemCount === 1 ? "Identify File with TVDB" : "Identify TV Series with TVDB"}
+            </span>
             <span className="text-xs sm:text-sm text-muted-foreground text-left">
-              Search TVDB to identify and rename {itemCount} {itemText}
+              Search TVDB to identify and rename as TV series episodes
             </span>
           </Button>
 

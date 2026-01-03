@@ -7,7 +7,8 @@
   ],
   "moviesBaseFolders": [
     {
-      "name": "Film"
+      "name": "Film",
+      "alwaysUseFFprobe": true
     }
   ],
   "seriesNamingTemplate": {
@@ -20,7 +21,7 @@
   },
   "movieNamingTemplate": {
     "folderTemplate": "{movieName} ({year}) asd",
-    "fileTemplate": "{movieName} ({year}) - {quality}",
+    "fileTemplate": "{movieName} ({year}) - {quality} - {codec} - {extraTags}",
     "folderStructure": "year"
   },
   "qualityValues": [
@@ -40,11 +41,7 @@
   "codecValues": [
     "x264",
     "x265",
-    "H264",
-    "H.264",
     "AVC",
-    "H265",
-    "H.265",
     "HEVC",
     "10bit",
     "10-bit",
@@ -61,28 +58,10 @@
     "HDR10",
     "HDR10+",
     "DV",
-    "Dolby Vision",
     "SDR",
     "10bit",
     "10-bit",
-    "8bit",
-    "8-bit",
     "ITA",
-    "ENG",
-    "SPA",
-    "FRE",
-    "GER",
-    "JPN",
-    "KOR",
-    "CHI",
-    "RUS",
-    "POR",
-    "Multi",
-    "Dual",
-    "Dub",
-    "Dubbed",
-    "Sub",
-    "Subs",
-    "Subbed"
+    "AC3"
   ]
 }

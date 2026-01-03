@@ -100,6 +100,10 @@ interface BatchIdentifyDialogProps {
   moviesBaseFolders?: BaseFolder[];
   // Global movie naming template
   movieNamingTemplate?: MovieNamingTemplate;
+  // Quality/codec/extraTag values from config
+  qualityValues?: string[];
+  codecValues?: string[];
+  extraTagValues?: string[];
 }
 
 export function BatchIdentifyDialog({
@@ -113,7 +117,12 @@ export function BatchIdentifyDialog({
   language = "en",
   moviesBaseFolders = [],
   movieNamingTemplate,
+  qualityValues,
+  codecValues,
+  extraTagValues,
 }: BatchIdentifyDialogProps) {
+  // Build parse options from config values
+  const parseOptions = { qualityValues, codecValues, extraTagValues };
   const isMobile = useIsMobile();
 
   // Scanning state
@@ -126,24 +135,37 @@ export function BatchIdentifyDialog({
   // Selected base folder for movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
 
-  // Get the alwaysUseFFprobe setting from the selected folder
+  // FFprobe checkbox state for rename operations
+  const [useFFprobe, setUseFFprobe] = useState(true);
+
+  // Get the alwaysUseFFprobe setting - for rename use checkbox, for copy/move use folder setting
   const getAlwaysUseFFprobe = useCallback(() => {
+    if (operation === "rename") {
+      return useFFprobe;
+    }
+    // For copy/move, use folder setting
     if (!selectedBaseFolder) return false;
     const folder = moviesBaseFolders.find(f => f.name === selectedBaseFolder);
     return folder?.alwaysUseFFprobe ?? false;
-  }, [selectedBaseFolder, moviesBaseFolders]);
+  }, [operation, useFFprobe, selectedBaseFolder, moviesBaseFolders]);
 
   // Helper to get the appropriate quality info based on settings
-  // If alwaysUseFFprobe is enabled, always use mediaInfoQuality (ignoring filename)
-  // Otherwise, prefer filename quality (more reliable for scene releases)
+  // Combines ffprobe data (resolution/codec) with filename data (extra tags like ITA, HDR)
   const getQualityInfo = useCallback((file: ScannedFile) => {
     const alwaysFFprobe = getAlwaysUseFFprobe();
-    if (alwaysFFprobe && file.mediaInfoQuality) {
-      // Always use ffprobe result, ignore filename parsing
-      return file.mediaInfoQuality;
+    const filenameQuality = file.parsed.qualityInfo || "";
+    const ffprobeQuality = file.mediaInfoQuality || "";
+
+    if (alwaysFFprobe && ffprobeQuality) {
+      // Use ffprobe for resolution/codec, but merge with filename extra tags
+      // ffprobe gives us "1080p.H264", filename might have "Ita.HDR"
+      if (filenameQuality) {
+        return `${ffprobeQuality}.${filenameQuality}`;
+      }
+      return ffprobeQuality;
     }
     // Default: prefer filename quality, fallback to ffprobe if filename has no quality info
-    return file.parsed.qualityInfo || file.mediaInfoQuality;
+    return filenameQuality || ffprobeQuality;
   }, [getAlwaysUseFFprobe]);
 
   // Get the effective movie naming template (folder override or global)
@@ -341,7 +363,7 @@ export function BatchIdentifyDialog({
               const template = getMovieNamingTemplate();
               const needsQuality = templateUsesQuality(template);
               const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
-              const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+              const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
               const result = applyMovieTemplate(template, {
                 movieName,
                 year,
@@ -418,7 +440,7 @@ export function BatchIdentifyDialog({
         const template = getMovieNamingTemplate();
         const needsQuality = templateUsesQuality(template);
         const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
-        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
         const pathResult = applyMovieTemplate(template, {
           movieName,
           year,
@@ -493,7 +515,7 @@ export function BatchIdentifyDialog({
         const year = fi.selectedResult.year || "";
         const ext = fi.file.parsed.extension || "mkv";
         const qualityInfo = needsQuality ? getQualityInfo(fi.file) : undefined;
-        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
 
         // Apply template to generate path
         const result = applyMovieTemplate(template, {
@@ -737,6 +759,23 @@ export function BatchIdentifyDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {/* FFprobe checkbox for rename operations */}
+          {operation === "rename" && !isScanning && fileIdentifications.length > 0 && (
+            <div className="flex items-center gap-2 py-2">
+              <Checkbox
+                id="use-ffprobe-batch"
+                checked={useFFprobe}
+                onCheckedChange={(checked) => setUseFFprobe(checked === true)}
+              />
+              <label
+                htmlFor="use-ffprobe-batch"
+                className="text-sm cursor-pointer select-none"
+              >
+                {language === "it" ? "Usa FFprobe per qualità/codec" : "Use FFprobe for quality/codec"}
+              </label>
             </div>
           )}
 

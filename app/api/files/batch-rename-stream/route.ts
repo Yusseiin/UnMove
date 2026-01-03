@@ -376,7 +376,6 @@ export async function POST(request: NextRequest) {
             if (operation === "rename") {
               // Skip if source and destination are the same (file already correctly named)
               if (sourceFull === destFull) {
-                console.log(`[SKIP] File already correctly named: ${currentFileName}`);
                 sendProgress({
                   type: "file_progress",
                   current: i + 1,
@@ -426,7 +425,6 @@ export async function POST(request: NextRequest) {
             if (operation === "move") {
               // Skip if source and destination are the same (file already in correct location)
               if (sourceFull === destFull) {
-                console.log(`[SKIP] File already in correct location: ${currentFileName}`);
                 sendProgress({
                   type: "file_progress",
                   current: i + 1,
@@ -474,10 +472,7 @@ export async function POST(request: NextRequest) {
                   bytesTotal: fileSize,
                   bytesPerSecond: 0, // Instant, no meaningful speed
                 });
-              } catch (renameErr: unknown) {
-                const errCode = (renameErr as NodeJS.ErrnoException).code;
-                // Log the error for debugging
-                console.log(`fs.rename failed: ${errCode} - falling back to copy+delete`);
+              } catch {
                 // For any rename error (EXDEV, EPERM, etc.), fall back to copy+delete
                 // This handles cross-device moves and permission issues in Docker
               }
@@ -659,9 +654,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Create season folders and move files into them (for rename operation only)
-        console.log(`[SEASON CREATE] Checking: operation=${operation}, seasonFolderCreates=${seasonFolderCreates ? JSON.stringify(seasonFolderCreates) : 'undefined'}`);
         if (operation === "rename" && seasonFolderCreates && seasonFolderCreates.length > 0) {
-          console.log(`[SEASON CREATE] Received: ${seasonFolderCreates.length} items`);
 
           // Group by season folder to avoid creating the same folder multiple times
           // Each entry contains: { filePath (original), newFileName (after rename), seasonFolder }
@@ -673,12 +666,8 @@ export async function POST(request: NextRequest) {
             folderGroups.set(create.seasonFolder, group);
           }
 
-          console.log(`Grouped into ${folderGroups.size} season folders`);
-
           for (const [seasonFolder, creates] of folderGroups) {
             try {
-              console.log(`Processing season folder: ${seasonFolder} with ${creates.length} files`);
-
               // Build the parent directory path manually from the original file path
               // We can't use validatePath because the original file no longer exists (it was renamed)
               const firstCreate = creates[0];
@@ -687,8 +676,6 @@ export async function POST(request: NextRequest) {
               filePathParts.pop(); // Remove filename to get directory path
               let dirRelativePath = filePathParts.join("/");
 
-              console.log(`File path: ${firstCreate.filePath}, normalized: ${normalizedFilePath}, dirRelativePath: ${dirRelativePath}`);
-
               // Check if file is currently inside a season folder - if so, go up one level
               // Season folder should be created at the series level, not inside another season folder
               const lastDirPart = filePathParts[filePathParts.length - 1];
@@ -696,7 +683,6 @@ export async function POST(request: NextRequest) {
               if (isInsideSeasonFolder && filePathParts.length > 1) {
                 filePathParts.pop(); // Remove the current season folder
                 dirRelativePath = filePathParts.join("/");
-                console.log(`File is inside a season folder, going up one level: ${dirRelativePath}`);
               }
 
               // Build absolute path for the series directory (where season folders should be)
@@ -704,13 +690,10 @@ export async function POST(request: NextRequest) {
                 ? path.join(sourceBase, dirRelativePath)
                 : sourceBase;
 
-              console.log(`Series dir: ${seriesDir}, sourceBase: ${sourceBase}`);
-
               // Security check - ensure we're still within sourceBase
               const normalizedSeriesDir = path.resolve(seriesDir);
               const normalizedBase = path.resolve(sourceBase);
               if (!normalizedSeriesDir.startsWith(normalizedBase)) {
-                console.log(`Season folder create skipped - path escape detected: ${seriesDir}`);
                 continue;
               }
 
@@ -718,26 +701,21 @@ export async function POST(request: NextRequest) {
               try {
                 const seriesDirStats = await fs.stat(seriesDir);
                 if (!seriesDirStats.isDirectory()) {
-                  console.log(`Season folder create skipped - series dir is not a directory: ${seriesDir}`);
                   continue;
                 }
-              } catch (statErr) {
-                console.log(`Season folder create skipped - series directory not found: ${seriesDir}`, statErr);
+              } catch {
                 continue;
               }
 
               const seasonFolderFull = path.join(seriesDir, seasonFolder);
-              console.log(`Season folder full path: ${seasonFolderFull}`);
 
               // Create the season folder if it doesn't exist
               try {
                 await fs.access(seasonFolderFull);
-                console.log(`Season folder already exists: ${seasonFolderFull}`);
               } catch {
-                // Create the folder
-                await fs.mkdir(seasonFolderFull, { mode: DIR_MODE });
-                await setDirectoryPermissions(seasonFolderFull);
-                console.log(`Created season folder: ${seasonFolderFull}`);
+                // Create the folder with proper permissions on ALL intermediate directories
+                // This handles nested paths like "Series (2023)/Season 01"
+                await mkdirWithPermissions(seasonFolderFull, seriesDir);
               }
 
               // Move each file into the season folder
@@ -757,30 +735,17 @@ export async function POST(request: NextRequest) {
                   const newFilePath = path.join(fileParentDir, create.newFileName);
                   const originalFilePath = path.join(fileParentDir, originalFileName || "");
 
-                  console.log(`Looking for file - newFileName: ${create.newFileName}, originalFileName: ${originalFileName}`);
-                  console.log(`Checking paths: new=${newFilePath}, original=${originalFilePath}`);
-
                   // First try the new filename, then fallback to original
                   let currentFilePath: string;
                   try {
                     await fs.access(newFilePath);
                     currentFilePath = newFilePath;
-                    console.log(`Found file with new name: ${newFilePath}`);
                   } catch {
                     // Try original filename
                     try {
                       await fs.access(originalFilePath);
                       currentFilePath = originalFilePath;
-                      console.log(`Found file with original name: ${originalFilePath}`);
                     } catch {
-                      // List files in directory to debug
-                      try {
-                        const dirFiles = await fs.readdir(fileParentDir);
-                        console.log(`Files in ${fileParentDir}:`, dirFiles);
-                      } catch (e) {
-                        console.log(`Could not list directory ${fileParentDir}:`, e);
-                      }
-                      console.log(`Season folder move skipped - file not found at either path`);
                       continue;
                     }
                   }
@@ -789,40 +754,32 @@ export async function POST(request: NextRequest) {
 
                   // Check if file is already in the season folder
                   if (path.resolve(fileParentDir) === path.resolve(seasonFolderFull)) {
-                    console.log(`File already in season folder, skipping`);
                     continue;
                   }
 
                   // Move the file
                   await fs.rename(currentFilePath, destFilePath);
                   await setFilePermissions(destFilePath);
-                  console.log(`Moved file to season folder: ${currentFilePath} -> ${destFilePath}`);
-                } catch (err) {
-                  console.error(`Failed to move file to season folder: ${create.newFileName}`, err);
+                } catch {
+                  // Ignore move errors
                 }
               }
-            } catch (err) {
-              console.error(`Failed to create season folder: ${seasonFolder}`, err);
+            } catch {
+              // Ignore folder creation errors
             }
           }
-        } else {
-          console.log(`[SEASON CREATE] Skipped: seasonFolderCreates=${seasonFolderCreates ? seasonFolderCreates.length : 'undefined'}, operation=${operation}`);
         }
 
         // Rename folders if requested (for rename operation only)
         // folderRenames should be sorted deepest first to avoid conflicts
-        console.log(`[FOLDER RENAME] Checking: operation=${operation}, folderRenames=${folderRenames ? JSON.stringify(folderRenames) : 'undefined'}`);
         const folderRenameErrors: string[] = [];
         if (operation === "rename" && folderRenames && folderRenames.length > 0) {
-          console.log(`[FOLDER RENAME] Received: ${folderRenames.length} items`);
 
           // Track renamed folders to update paths for subsequent renames
           const renamedPaths = new Map<string, string>(); // oldPath -> newPath
 
           for (const folderRename of folderRenames) {
             try {
-              console.log(`[FOLDER RENAME] Processing: ${folderRename.oldPath} -> ${folderRename.newName}`);
-
               // Apply any previous renames to the path
               let currentOldPath = folderRename.oldPath;
               for (const [oldP, newP] of renamedPaths) {
@@ -832,8 +789,6 @@ export async function POST(request: NextRequest) {
                   currentOldPath = newP;
                 }
               }
-
-              console.log(`[FOLDER RENAME] After applying previous renames: ${currentOldPath}`);
 
               // Build the full path manually (don't use validatePath as it requires the folder to exist for realpath)
               const sanitizedPath = currentOldPath
@@ -849,21 +804,16 @@ export async function POST(request: NextRequest) {
               const normalizedFolder = path.resolve(folderFull);
               const normalizedBase = path.resolve(sourceBase);
               if (!normalizedFolder.startsWith(normalizedBase + path.sep) && normalizedFolder !== normalizedBase) {
-                console.log(`[FOLDER RENAME] Skipped - path escape: ${currentOldPath}`);
                 continue;
               }
-
-              console.log(`[FOLDER RENAME] Full path: ${folderFull}, sourceBase: ${sourceBase}`);
 
               // Check if it's actually a directory
               try {
                 const stats = await fs.stat(folderFull);
                 if (!stats.isDirectory()) {
-                  console.log(`[FOLDER RENAME] Skipped - not a directory: ${currentOldPath}`);
                   continue;
                 }
-              } catch (statErr) {
-                console.log(`[FOLDER RENAME] Skipped - does not exist: ${currentOldPath}`, statErr);
+              } catch {
                 continue;
               }
 
@@ -871,11 +821,8 @@ export async function POST(request: NextRequest) {
               const parentDir = path.dirname(folderFull);
               const newFolderFull = path.join(parentDir, folderRename.newName);
 
-              console.log(`[FOLDER RENAME] New path: ${newFolderFull}`);
-
               // Skip if already has the correct name
               if (path.basename(folderFull) === folderRename.newName) {
-                console.log(`[FOLDER RENAME] Skipped - already correct name`);
                 continue;
               }
 
@@ -883,7 +830,6 @@ export async function POST(request: NextRequest) {
               try {
                 await fs.access(newFolderFull);
                 // Destination exists - skip this rename to avoid data loss
-                console.log(`[FOLDER RENAME] Skipped - destination exists: ${newFolderFull}`);
                 continue;
               } catch {
                 // Good - destination doesn't exist
@@ -892,7 +838,6 @@ export async function POST(request: NextRequest) {
               // Rename the folder with retry logic for Windows EPERM errors
               // Windows can temporarily lock folders that were recently accessed
               let renameSuccess = false;
-              let lastError: unknown = null;
               const maxRetries = 3;
               const retryDelay = 500; // ms
 
@@ -903,12 +848,10 @@ export async function POST(request: NextRequest) {
                   renameSuccess = true;
                   break;
                 } catch (renameErr: unknown) {
-                  lastError = renameErr;
                   const errCode = (renameErr as NodeJS.ErrnoException).code;
 
                   // EPERM on Windows often means the folder is temporarily locked
                   if (errCode === "EPERM" && attempt < maxRetries) {
-                    console.log(`[FOLDER RENAME] EPERM error, retrying in ${retryDelay}ms (attempt ${attempt}/${maxRetries})`);
                     await new Promise(resolve => setTimeout(resolve, retryDelay));
                     continue;
                   }
@@ -921,10 +864,8 @@ export async function POST(request: NextRequest) {
                 // Track the rename for updating subsequent paths
                 const newPath = sanitizedPath.replace(/[^/]+$/, folderRename.newName);
                 renamedPaths.set(sanitizedPath, newPath);
-                console.log(`[FOLDER RENAME] Success: ${folderFull} -> ${newFolderFull}`);
               }
             } catch (err) {
-              console.error(`[FOLDER RENAME] Failed: ${folderRename.oldPath}`, err);
               // Check for Windows EPERM specifically
               if ((err as NodeJS.ErrnoException).code === "EPERM") {
                 folderRenameErrors.push(`Folder "${folderRename.oldPath}" is locked (close any programs using it)`);
@@ -933,8 +874,6 @@ export async function POST(request: NextRequest) {
               }
             }
           }
-        } else {
-          console.log(`[FOLDER RENAME] Skipped: folderRenames=${folderRenames ? folderRenames.length : 'undefined'}, operation=${operation}`);
         }
 
         // Combine file errors with folder rename errors

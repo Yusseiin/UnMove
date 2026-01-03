@@ -101,6 +101,10 @@ interface IdentifyDialogProps {
   // Global naming templates (used when folder doesn't have override)
   seriesNamingTemplate?: SeriesNamingTemplate;
   movieNamingTemplate?: MovieNamingTemplate;
+  // Quality/codec/extraTag values from config
+  qualityValues?: string[];
+  codecValues?: string[];
+  extraTagValues?: string[];
 }
 
 export function IdentifyDialog({
@@ -118,7 +122,12 @@ export function IdentifyDialog({
   moviesBaseFolders = [],
   seriesNamingTemplate,
   movieNamingTemplate,
+  qualityValues,
+  codecValues,
+  extraTagValues,
 }: IdentifyDialogProps) {
+  // Build parse options from config values
+  const parseOptions = { qualityValues, codecValues, extraTagValues };
   const isMobile = useIsMobile();
   // Get localized strings based on language
   const strings = getLocalizedStrings(language);
@@ -180,25 +189,41 @@ export function IdentifyDialog({
   const [renameSeasonFolders, setRenameSeasonFolders] = useState(false);
   const [renameMainFolder, setRenameMainFolder] = useState(false);
 
-  // Get the alwaysUseFFprobe setting from the selected folder
+  // Media type filter for search (series or movie)
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<"series" | "movie" | null>(null);
+
+  // FFprobe checkbox state for rename operations
+  const [useFFprobe, setUseFFprobe] = useState(true);
+
+  // Get the alwaysUseFFprobe setting - for rename use checkbox, for copy/move use folder setting
   const getAlwaysUseFFprobe = useCallback(() => {
+    if (operation === "rename") {
+      return useFFprobe;
+    }
+    // For copy/move, use folder setting
     if (!selectedBaseFolder || !selectedResult) return false;
     const folders = selectedResult.type === "series" ? seriesBaseFolders : moviesBaseFolders;
     const folder = folders.find(f => f.name === selectedBaseFolder);
     return folder?.alwaysUseFFprobe ?? false;
-  }, [selectedBaseFolder, selectedResult, seriesBaseFolders, moviesBaseFolders]);
+  }, [operation, useFFprobe, selectedBaseFolder, selectedResult, seriesBaseFolders, moviesBaseFolders]);
 
   // Helper to get the appropriate quality info based on settings
-  // If alwaysUseFFprobe is enabled, always use mediaInfoQuality (ignoring filename)
-  // Otherwise, prefer filename quality (more reliable for scene releases)
+  // Combines ffprobe data (resolution/codec) with filename data (extra tags like ITA, HDR)
   const getQualityInfo = useCallback((file: ScannedFile) => {
     const alwaysFFprobe = getAlwaysUseFFprobe();
-    if (alwaysFFprobe && file.mediaInfoQuality) {
-      // Always use ffprobe result, ignore filename parsing
-      return file.mediaInfoQuality;
+    const filenameQuality = file.parsed.qualityInfo || "";
+    const ffprobeQuality = file.mediaInfoQuality || "";
+
+    if (alwaysFFprobe && ffprobeQuality) {
+      // Use ffprobe for resolution/codec, but merge with filename extra tags
+      // ffprobe gives us "1080p.H264", filename might have "Ita.HDR"
+      if (filenameQuality) {
+        return `${ffprobeQuality}.${filenameQuality}`;
+      }
+      return ffprobeQuality;
     }
     // Default: prefer filename quality, fallback to ffprobe if filename has no quality info
-    return file.parsed.qualityInfo || file.mediaInfoQuality;
+    return filenameQuality || ffprobeQuality;
   }, [getAlwaysUseFFprobe]);
 
   // Get the effective series naming template (folder override or global)
@@ -367,6 +392,7 @@ export function IdentifyDialog({
     setEditingFileIndex(null);
     setEditingSeason(null);
     setEditingEpisode(null);
+    setMediaTypeFilter(null);
 
     try {
       // Use multiple paths if provided, otherwise fall back to single path
@@ -393,7 +419,7 @@ export function IdentifyDialog({
     }
   };
 
-  const performSearch = async (query: string) => {
+  const performSearch = async (query: string, typeFilter?: "series" | "movie" | null) => {
     setIsSearching(true);
     setSearchError(null);
     setSelectedResult(null);
@@ -404,10 +430,12 @@ export function IdentifyDialog({
     setEditingEpisode(null);
 
     try {
+      // Use passed typeFilter or fall back to state
+      const searchType = typeFilter !== undefined ? typeFilter : mediaTypeFilter;
       const response = await fetch("/api/tvdb/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, lang: language }),
+        body: JSON.stringify({ query, lang: language, type: searchType }),
       });
 
       const data: TVDBApiResponse<TVDBSearchResult[]> = await response.json();
@@ -470,7 +498,7 @@ export function IdentifyDialog({
     // Get quality info if template uses quality/codec/extraTags tokens
     const needsQuality = templateUsesQuality(template);
     const qualityInfo = needsQuality ? getQualityInfo(file) : undefined;
-    const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+    const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
 
     // Apply template to generate path
     const result = applyMovieTemplate(template, {
@@ -542,7 +570,7 @@ export function IdentifyDialog({
       // Get episode title and quality info
       const episodeTitle = getEpisodeDisplayName(matchedEpisode);
       const qualityInfo = needsQuality ? getQualityInfo(file) : undefined;
-      const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+      const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
       const ext = file.parsed.extension || "mkv";
 
       // Apply template to generate path
@@ -686,7 +714,7 @@ export function IdentifyDialog({
     // Get quality info if template uses quality/codec/extraTags tokens
     const needsQuality = templateUsesQuality(template);
     const qualityInfo = needsQuality ? getQualityInfo(file) : undefined;
-    const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+    const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
     const ext = file.parsed.extension || "mkv";
 
     // Apply template to generate path
@@ -772,13 +800,6 @@ export function IdentifyDialog({
   };
 
   const handleConfirm = useCallback(async () => {
-    console.log("=== handleConfirm START ===");
-    console.log("fileMappings.length:", fileMappings.length);
-    console.log("renameSeasonFolders:", renameSeasonFolders);
-    console.log("renameMainFolder:", renameMainFolder);
-    console.log("selectedResult?.type:", selectedResult?.type);
-    console.log("operation:", operation);
-
     if (fileMappings.length === 0) return;
 
     setIsProcessing(true);
@@ -804,13 +825,6 @@ export function IdentifyDialog({
       let folderRenames: { oldPath: string; newName: string }[] | undefined;
       let seasonFolderCreates: { filePath: string; newFileName: string; seasonFolder: string }[] | undefined;
 
-      console.log("[DEBUG] Folder operation condition check:", {
-        renameSeasonFolders,
-        renameMainFolder,
-        selectedResultType: selectedResult?.type,
-        operation,
-      });
-
       if ((renameSeasonFolders || renameMainFolder) && selectedResult?.type === "series") {
         const seriesName = getDisplayName(selectedResult, language);
         const seriesYear = selectedResult.year || "";
@@ -819,7 +833,7 @@ export function IdentifyDialog({
         // Get quality/codec info from first file for folder template
         const firstFile = scannedFiles[0];
         const qualityInfo = firstFile ? getQualityInfo(firstFile) : undefined;
-        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
 
         // Collect unique folder paths from files and compute new names
         const folderMap = new Map<string, string>(); // oldPath -> newName
@@ -831,9 +845,6 @@ export function IdentifyDialog({
           fileRenameMap.set(f.sourcePath, f.destinationPath);
         }
 
-        console.log("[DEBUG] Processing folder operations for", fileMappings.length, "mappings");
-        console.log("[DEBUG] renameSeasonFolders:", renameSeasonFolders, "renameMainFolder:", renameMainFolder);
-
         for (const m of fileMappings) {
           if (m.skipped || m.error) continue;
 
@@ -842,12 +853,64 @@ export function IdentifyDialog({
           const fullDirParts = fullFilePath.split("/").filter(p => p.length > 0);
           fullDirParts.pop(); // Remove filename
 
-          console.log("[DEBUG] File path:", m.file.path, "-> Dir parts:", fullDirParts);
-
           const season = m.episode?.seasonNumber;
 
-          // Handle season folder rename/create
-          if (renameSeasonFolders && season !== undefined) {
+          // Check if the user selected individual files (not a folder)
+          // When a file is selected directly, relativePath equals the filename (no folder components)
+          const userSelectedFile = m.file.relativePath === m.file.name;
+
+          // Handle combined main folder + season folder creation for directly selected files
+          if (userSelectedFile && renameMainFolder) {
+            // User selected a file directly - need to create folder structure
+            const mainResult = applySeriesTemplate(template, {
+              seriesName,
+              seriesYear,
+              season: 1,
+              episode: 1,
+              episodeTitle: "",
+              quality,
+              codec,
+              extraTags,
+              extension: "mkv",
+            });
+            const expectedSeriesFolder = mainResult.seriesFolder;
+
+            const newFileName = fileRenameMap.get(m.file.path)?.split("/").pop() || m.newPath.split("/").pop() || "";
+            if (newFileName) {
+              if (renameSeasonFolders && season !== undefined) {
+                // Both main folder and season folder - create combined path
+                const seasonResult = applySeriesTemplate(template, {
+                  seriesName,
+                  seriesYear,
+                  season,
+                  episode: 1,
+                  episodeTitle: "",
+                  quality,
+                  codec,
+                  extraTags,
+                  extension: "mkv",
+                });
+                const expectedSeasonFolder = seasonResult.seasonFolder;
+                // Create path like "Percy Jackson (2023)/Season 01"
+                const combinedFolder = expectedSeasonFolder
+                  ? `${expectedSeriesFolder}/${expectedSeasonFolder}`
+                  : expectedSeriesFolder;
+                seasonCreates.push({
+                  filePath: m.file.path,
+                  newFileName,
+                  seasonFolder: combinedFolder,
+                });
+              } else {
+                // Only main folder - create just the main folder
+                seasonCreates.push({
+                  filePath: m.file.path,
+                  newFileName,
+                  seasonFolder: expectedSeriesFolder,
+                });
+              }
+            }
+          } else if (userSelectedFile && renameSeasonFolders && season !== undefined) {
+            // User selected file directly, only season folders enabled (no main folder)
             const result = applySeriesTemplate(template, {
               seriesName,
               seriesYear,
@@ -860,107 +923,105 @@ export function IdentifyDialog({
               extension: "mkv",
             });
             const expectedSeasonFolder = result.seasonFolder;
+            if (expectedSeasonFolder) {
+              const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
+              seasonCreates.push({
+                filePath: m.file.path,
+                newFileName,
+                seasonFolder: expectedSeasonFolder,
+              });
+            }
+          } else {
+            // User selected a folder - handle folder renames
 
-            console.log("[DEBUG] Season:", season, "Expected folder:", expectedSeasonFolder, "Dir parts length:", fullDirParts.length);
+            // Handle season folder rename/create
+            if (renameSeasonFolders && season !== undefined) {
+              const result = applySeriesTemplate(template, {
+                seriesName,
+                seriesYear,
+                season,
+                episode: 1,
+                episodeTitle: "",
+                quality,
+                codec,
+                extraTags,
+                extension: "mkv",
+              });
+              const expectedSeasonFolder = result.seasonFolder;
 
-            if (fullDirParts.length > 0) {
-              // Check if there's a season folder that needs renaming
-              const seasonFolderName = fullDirParts[fullDirParts.length - 1];
-              const seasonMatch = seasonFolderName.match(/Season\s*(\d{1,2})/i);
+              if (fullDirParts.length > 0) {
+                // Check if there's a season folder that needs renaming
+                const seasonFolderName = fullDirParts[fullDirParts.length - 1];
+                const seasonMatch = seasonFolderName.match(/Season\s*(\d{1,2})/i);
 
-              console.log("[DEBUG] Season folder name:", seasonFolderName, "Match:", seasonMatch ? "yes" : "no");
+                if (seasonMatch && expectedSeasonFolder && expectedSeasonFolder !== seasonFolderName) {
+                  // The folder has a season pattern but doesn't match expected
+                  // Check if the folder's season matches the FILE's season
+                  const folderSeasonNum = parseInt(seasonMatch[1], 10);
 
-              if (seasonMatch && expectedSeasonFolder && expectedSeasonFolder !== seasonFolderName) {
-                // The folder has a season pattern but doesn't match expected
-                // Check if the folder's season matches the FILE's season
-                const folderSeasonNum = parseInt(seasonMatch[1], 10);
-
-                console.log("[DEBUG] Folder season:", folderSeasonNum, "File season:", season);
-
-                if (folderSeasonNum === season) {
-                  // Folder season matches file season, just needs renaming (e.g., "Season 1" -> "Season 01")
-                  const seasonFolderPath = fullDirParts.join("/");
-                  console.log("[DEBUG] Adding folder rename:", seasonFolderPath, "->", expectedSeasonFolder);
-                  if (!folderMap.has(seasonFolderPath)) {
-                    folderMap.set(seasonFolderPath, expectedSeasonFolder);
+                  if (folderSeasonNum === season) {
+                    // Folder season matches file season, just needs renaming (e.g., "Season 1" -> "Season 01")
+                    const seasonFolderPath = fullDirParts.join("/");
+                    if (!folderMap.has(seasonFolderPath)) {
+                      folderMap.set(seasonFolderPath, expectedSeasonFolder);
+                    }
+                  } else {
+                    // File is in WRONG season folder - need to create correct folder and move file
+                    const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
+                    seasonCreates.push({
+                      filePath: m.file.path,
+                      newFileName,
+                      seasonFolder: expectedSeasonFolder,
+                    });
                   }
-                } else {
-                  // File is in WRONG season folder - need to create correct folder and move file
+                } else if (!seasonMatch && expectedSeasonFolder) {
+                  // No season folder exists - need to create one and move file into it
                   const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
-                  console.log("[DEBUG] File in wrong season folder, adding season create:", expectedSeasonFolder, "for file:", newFileName);
                   seasonCreates.push({
                     filePath: m.file.path,
                     newFileName,
                     seasonFolder: expectedSeasonFolder,
                   });
                 }
-              } else if (!seasonMatch && expectedSeasonFolder) {
-                // No season folder exists - need to create one and move file into it
-                // Get the new filename from the rename map
-                const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
-                console.log("[DEBUG] Adding season create:", expectedSeasonFolder, "for file:", newFileName);
-                seasonCreates.push({
-                  filePath: m.file.path,
-                  newFileName,
-                  seasonFolder: expectedSeasonFolder,
-                });
-              }
-            } else {
-              // File is at root level - need to create season folder
-              if (expectedSeasonFolder) {
-                const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
-                console.log("[DEBUG] Adding season create (root level):", expectedSeasonFolder, "for file:", newFileName);
-                seasonCreates.push({
-                  filePath: m.file.path,
-                  newFileName,
-                  seasonFolder: expectedSeasonFolder,
-                });
               }
             }
-          }
 
-          // Handle main folder rename
-          if (renameMainFolder && fullDirParts.length > 0) {
-            // Get the series folder template name
-            const result = applySeriesTemplate(template, {
-              seriesName,
-              seriesYear,
-              season: 1,
-              episode: 1,
-              episodeTitle: "",
-              quality,
-              codec,
-              extraTags,
-              extension: "mkv",
-            });
-            const expectedSeriesFolder = result.seriesFolder;
+            // Handle main folder rename
+            if (renameMainFolder && fullDirParts.length > 0) {
+              // Get the series folder template name
+              const result = applySeriesTemplate(template, {
+                seriesName,
+                seriesYear,
+                season: 1,
+                episode: 1,
+                episodeTitle: "",
+                quality,
+                codec,
+                extraTags,
+                extension: "mkv",
+              });
+              const expectedSeriesFolder = result.seriesFolder;
 
-            // Find the main folder (first part of the path from source base)
-            const mainFolderName = fullDirParts[0];
-            console.log("[DEBUG] Main folder:", mainFolderName, "Expected:", expectedSeriesFolder);
-            if (mainFolderName && mainFolderName !== expectedSeriesFolder) {
-              // The main folder needs to be renamed - use just the folder name as path
-              if (!folderMap.has(mainFolderName)) {
-                console.log("[DEBUG] Adding main folder rename:", mainFolderName, "->", expectedSeriesFolder);
-                folderMap.set(mainFolderName, expectedSeriesFolder);
+              // User selected a folder - rename the main folder
+              const mainFolderName = fullDirParts[0];
+              if (mainFolderName && mainFolderName !== expectedSeriesFolder) {
+                // The main folder needs to be renamed - use just the folder name as path
+                if (!folderMap.has(mainFolderName)) {
+                  folderMap.set(mainFolderName, expectedSeriesFolder);
+                }
               }
             }
           }
         }
-
-        console.log("[DEBUG] folderMap size:", folderMap.size, "seasonCreates:", seasonCreates.length);
 
         // Convert to array, sorted by depth (deepest first to avoid conflicts)
         folderRenames = Array.from(folderMap.entries())
           .map(([oldPath, newName]) => ({ oldPath, newName }))
           .sort((a, b) => b.oldPath.split("/").length - a.oldPath.split("/").length);
 
-        console.log("[DEBUG] folderRenames:", JSON.stringify(folderRenames));
-
         // Set season folder creates if any
         if (seasonCreates.length > 0) {
           seasonFolderCreates = seasonCreates;
-          console.log("[DEBUG] seasonFolderCreates:", JSON.stringify(seasonFolderCreates));
         }
       }
 
@@ -1182,6 +1243,29 @@ export function IdentifyDialog({
             </div>
           )}
 
+          {/* Media type info - show when multiple files are scanned */}
+          {!isScanning && scannedFiles.length > 1 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 border">
+                <div className="flex-1">
+                  <p className="text-sm font-medium">
+                    {language === "it" ? "Episodi Serie TV" : "TV Series Episodes"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {language === "it"
+                      ? "Cerca una serie e abbina ogni file a un episodio"
+                      : "Search for a series and match each file to an episode"}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {language === "it"
+                  ? "Per rinominare film separati, usa \"Identifica Film Separatamente\" dal menu precedente."
+                  : "To rename separate movies, use \"Identify Movies Separately\" from the previous menu."}
+              </p>
+            </div>
+          )}
+
           {/* Search input */}
           {!isScanning && scannedFiles.length > 0 && (
             <div className="space-y-1">
@@ -1190,10 +1274,13 @@ export function IdentifyDialog({
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search for show or movie..."
+                  placeholder={scannedFiles.length > 1
+                    ? (language === "it" ? "Cerca serie TV..." : "Search for TV series...")
+                    : (language === "it" ? "Cerca serie o film..." : "Search for show or movie...")}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && searchQuery.trim()) {
-                      performSearch(searchQuery);
+                      // For multiple files, filter to series only
+                      performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null);
                     }
                   }}
                 />
@@ -1201,7 +1288,7 @@ export function IdentifyDialog({
                   type="button"
                   variant="outline"
                   size="icon"
-                  onClick={() => performSearch(searchQuery)}
+                  onClick={() => performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null)}
                   disabled={!searchQuery.trim() || isSearching}
                   title="Search"
                 >
@@ -1330,7 +1417,7 @@ export function IdentifyDialog({
                         // Get quality/codec/extraTags from first scanned file if available
                         const firstFile = scannedFiles[0];
                         const qualityInfo = firstFile ? getQualityInfo(firstFile) : undefined;
-                        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+                        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
                         return applySeriesTemplate(getSeriesNamingTemplate(), {
                           seriesName: getDisplayName(selectedResult, language),
                           seriesYear: selectedResult.year || "",
@@ -1350,7 +1437,7 @@ export function IdentifyDialog({
                         // Get quality/codec/extraTags from first scanned file if available
                         const firstFile = scannedFiles[0];
                         const qualityInfo = firstFile ? getQualityInfo(firstFile) : undefined;
-                        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo);
+                        const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
                         return applyMovieTemplate(getMovieNamingTemplate(), {
                           movieName: getDisplayName(selectedResult, language),
                           year: selectedResult.year || "",
@@ -1367,35 +1454,52 @@ export function IdentifyDialog({
             </div>
           )}
 
-          {/* Folder rename options - only for rename operation with series */}
-          {operation === "rename" && selectedResult?.type === "series" && scannedFiles.length > 0 && (
+          {/* Rename options - FFprobe checkbox for all, folder options for series */}
+          {operation === "rename" && scannedFiles.length > 0 && (
             <div className="space-y-2 py-2">
               <div className="flex items-center gap-2">
                 <Checkbox
-                  id="rename-season-folders"
-                  checked={renameSeasonFolders}
-                  onCheckedChange={(checked) => setRenameSeasonFolders(checked === true)}
+                  id="use-ffprobe"
+                  checked={useFFprobe}
+                  onCheckedChange={(checked) => setUseFFprobe(checked === true)}
                 />
                 <label
-                  htmlFor="rename-season-folders"
+                  htmlFor="use-ffprobe"
                   className="text-sm cursor-pointer select-none"
                 >
-                  {language === "it" ? "Rinomina/crea cartelle stagione" : "Rename/create season folders"}
+                  {language === "it" ? "Usa FFprobe per qualità/codec" : "Use FFprobe for quality/codec"}
                 </label>
               </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="rename-main-folder"
-                  checked={renameMainFolder}
-                  onCheckedChange={(checked) => setRenameMainFolder(checked === true)}
-                />
-                <label
-                  htmlFor="rename-main-folder"
-                  className="text-sm cursor-pointer select-none"
-                >
-                  {language === "it" ? "Rinomina cartella principale" : "Rename main folder"}
-                </label>
-              </div>
+              {selectedResult?.type === "series" && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="rename-season-folders"
+                      checked={renameSeasonFolders}
+                      onCheckedChange={(checked) => setRenameSeasonFolders(checked === true)}
+                    />
+                    <label
+                      htmlFor="rename-season-folders"
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      {language === "it" ? "Rinomina/crea cartelle stagione" : "Rename/create season folders"}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="rename-main-folder"
+                      checked={renameMainFolder}
+                      onCheckedChange={(checked) => setRenameMainFolder(checked === true)}
+                    />
+                    <label
+                      htmlFor="rename-main-folder"
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      {language === "it" ? "Rinomina/crea cartella principale" : "Rename/create main folder"}
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
