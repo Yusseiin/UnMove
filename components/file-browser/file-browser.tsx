@@ -167,6 +167,20 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
     setBatchIdentifyDialogOpen(true);
   }, [transferOperation]);
 
+  // Handle multi-series transfer choice (multiple TV series at once) - navigates to dedicated page
+  const handleMultiSeriesTransferChoice = useCallback(() => {
+    setTransferChoiceOpen(false);
+    // Store file paths in sessionStorage for the new page
+    sessionStorage.setItem("multiSeriesFilePaths", JSON.stringify(transferPaths));
+    // Store current path so we can return to it
+    const currentPath = downloadsPaneRef.current?.currentPath;
+    if (currentPath) {
+      sessionStorage.setItem("returnToPath", currentPath);
+    }
+    // Navigate to the multi-series identify page with the transfer operation
+    router.push(`/identify-multi-series?pane=downloads&operation=${transferOperation}`);
+  }, [transferPaths, transferOperation, router]);
+
   // Handle rename button click - show choice dialog
   const handleRenameWithChoice = useCallback((pane: PaneType, selectedPaths: string[], entries: FileEntry[]) => {
     setRenamePane(pane);
@@ -585,9 +599,11 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onOpenChange={setTransferChoiceOpen}
         operation={transferOperation}
         itemCount={transferPaths.length}
+        metadataProvider={config.metadataProvider}
         onNormalTransfer={handleNormalTransfer}
         onIdentify={handleIdentifyChoice}
         onBatchIdentify={handleBatchIdentifyChoice}
+        onMultiSeriesTransfer={handleMultiSeriesTransferChoice}
       />
 
       <CreateFolderDialog
@@ -617,6 +633,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         open={renameChoiceOpen}
         onOpenChange={setRenameChoiceOpen}
         itemCount={renameChoicePaths.length}
+        metadataProvider={config.metadataProvider}
         onNormalRename={handleNormalRenameChoice}
         onIdentifyRename={handleTvdbRenameChoice}
         onBatchIdentifyRename={handleBatchTvdbRenameChoice}
@@ -677,6 +694,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onConfirm={handleIdentifyConfirm}
         isLoading={isOperationLoading}
         language={config.language}
+        metadataProvider={config.metadataProvider}
         seriesBaseFolders={config.seriesBaseFolders}
         moviesBaseFolders={config.moviesBaseFolders}
         seriesNamingTemplate={config.seriesNamingTemplate}
@@ -695,6 +713,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onConfirm={handleBatchIdentifyConfirm}
         isLoading={isOperationLoading}
         language={config.language}
+        metadataProvider={config.metadataProvider}
         moviesBaseFolders={config.moviesBaseFolders}
         movieNamingTemplate={config.movieNamingTemplate}
         qualityValues={config.qualityValues}
@@ -707,6 +726,8 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onOpenChange={onSettingsOpenChange}
         language={config.language}
         onLanguageChange={setLanguage}
+        metadataProvider={config.metadataProvider}
+        onMetadataProviderChange={(provider) => updateConfig({ metadataProvider: provider })}
         seriesBaseFolders={config.seriesBaseFolders}
         onSeriesBaseFoldersChange={(folders) => updateConfig({ seriesBaseFolders: folders })}
         moviesBaseFolders={config.moviesBaseFolders}

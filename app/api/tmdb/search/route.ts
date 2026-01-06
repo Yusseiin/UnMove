@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchTVDB } from "@/lib/tvdb";
+import { searchTMDB } from "@/lib/tmdb";
 import type { TVDBSearchRequest, TVDBApiResponse, TVDBSearchResult } from "@/types/tvdb";
 
 export async function POST(request: NextRequest) {
@@ -21,9 +21,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const results = await searchTVDB(query.trim(), type, lang, year);
+    const results = await searchTMDB(query.trim(), type, lang, year);
 
-    // Filter to only series and movies (exclude person, company)
+    // Filter to only series and movies (should already be filtered, but double-check)
     const filteredResults = results.filter(
       (r) => r.type === "series" || r.type === "movie"
     );
@@ -33,11 +33,10 @@ export async function POST(request: NextRequest) {
       data: filteredResults,
     });
   } catch (error) {
-    console.error("TVDB search error:", error);
     return NextResponse.json<TVDBApiResponse<null>>(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to search TVDB",
+        error: error instanceof Error ? error.message : "Failed to search TMDB",
       },
       { status: 500 }
     );

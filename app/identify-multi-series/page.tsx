@@ -54,6 +54,7 @@ import type {
 } from "@/types/tvdb";
 import type {
   Language,
+  MetadataProvider,
   BaseFolder,
   SeriesNamingTemplate,
   AppConfig,
@@ -92,6 +93,7 @@ interface SeriesGroup {
   displayName: string;
   files: FileEpisodeMapping[];
   searchQuery: string;
+  searchYear: string;
   searchResults: TVDBSearchResult[];
   selectedResult: TVDBSearchResult | null;
   isSearching: boolean;
@@ -159,6 +161,33 @@ function IdentifyMultiSeriesContent() {
 
   // View mode: "carousel" or "summary"
   const [viewMode, setViewMode] = useState<"carousel" | "summary">("carousel");
+
+  // Metadata provider (TVDB or TMDB)
+  const [activeProvider, setActiveProvider] = useState<MetadataProvider>(
+    config?.metadataProvider || "tvdb"
+  );
+
+  // Sync activeProvider when config loads
+  useEffect(() => {
+    if (config?.metadataProvider) {
+      setActiveProvider(config.metadataProvider);
+    }
+  }, [config?.metadataProvider]);
+
+  // Track if provider was manually changed (not from config load)
+  const [providerManuallyChanged, setProviderManuallyChanged] = useState(false);
+
+  // Re-search all groups when provider is manually changed
+  useEffect(() => {
+    if (providerManuallyChanged && seriesGroups.length > 0) {
+      seriesGroups.forEach((group, index) => {
+        if (group.searchQuery.trim()) {
+          performSearch(index, group.searchQuery);
+        }
+      });
+      setProviderManuallyChanged(false);
+    }
+  }, [providerManuallyChanged, activeProvider]);
 
   // FFprobe checkbox state for rename operations
   const [useFFprobe, setUseFFprobe] = useState(true);
@@ -293,33 +322,38 @@ function IdentifyMultiSeriesContent() {
         }
 
         // Convert to SeriesGroup array
-        const groups: SeriesGroup[] = Array.from(groupMap.entries()).map(([key, value]) => ({
-          groupKey: key,
-          displayName: value.displayName,
-          files: value.files.map(file => ({
-            file,
-            selectedSeason: file.parsed.season ?? null,
-            selectedEpisode: file.parsed.episode ?? null,
-            selectedEpisodeData: null,
-            newPath: "",
-          })),
-          searchQuery: value.displayName,
-          searchResults: [],
-          selectedResult: null,
-          isSearching: false,
-          searchError: null,
-          episodes: [],
-          isLoadingEpisodes: false,
-          status: "pending" as const,
-          renameSeasonFolders: false,
-          renameMainFolder: false,
-        }));
+        const groups: SeriesGroup[] = Array.from(groupMap.entries()).map(([key, value]) => {
+          // Extract year from the first file in the group (if available)
+          const firstFileYear = value.files[0]?.parsed?.year;
+          return {
+            groupKey: key,
+            displayName: value.displayName,
+            files: value.files.map(file => ({
+              file,
+              selectedSeason: file.parsed.season ?? null,
+              selectedEpisode: file.parsed.episode ?? null,
+              selectedEpisodeData: null,
+              newPath: "",
+            })),
+            searchQuery: value.displayName,
+            searchYear: firstFileYear ? String(firstFileYear) : "",
+            searchResults: [],
+            selectedResult: null,
+            isSearching: false,
+            searchError: null,
+            episodes: [],
+            isLoadingEpisodes: false,
+            status: "pending" as const,
+            renameSeasonFolders: false,
+            renameMainFolder: false,
+          };
+        });
 
         setSeriesGroups(groups);
 
         // Auto-search for each group
         groups.forEach((_, index) => {
-          performSearch(index, groups[index].searchQuery);
+          performSearch(index, groups[index].searchQuery, groups[index].searchYear);
         });
       } else {
         setScanError(data.error || "Failed to scan files");
@@ -331,7 +365,7 @@ function IdentifyMultiSeriesContent() {
     }
   };
 
-  const performSearch = async (groupIndex: number, query: string) => {
+  const performSearch = async (groupIndex: number, query: string, year?: string) => {
     if (!query.trim()) return;
 
     setSeriesGroups((prev) =>
@@ -343,10 +377,21 @@ function IdentifyMultiSeriesContent() {
     );
 
     try {
-      const response = await fetch("/api/tvdb/search", {
+      // Use the active provider's search endpoint
+      const searchEndpoint = activeProvider === "tmdb" ? "/api/tmdb/search" : "/api/tvdb/search";
+      // Build request body - include year for both providers
+      const requestBody: { query: string; type: "series"; lang: string; year?: string } = {
+        query,
+        type: "series",
+        lang: language,
+      };
+      if (year) {
+        requestBody.year = year;
+      }
+      const response = await fetch(searchEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, type: "series", lang: language }),
+        body: JSON.stringify(requestBody),
       });
 
       const data: TVDBApiResponse<TVDBSearchResult[]> = await response.json();
@@ -381,6 +426,11 @@ function IdentifyMultiSeriesContent() {
           });
         });
       } else {
+        // Check for API key missing error
+        if (data.error?.startsWith("API_KEY_MISSING:")) {
+          const provider = data.error.split(":")[1];
+          showErrorToast(`${provider} API key missing`, "Please add it to your .env file.");
+        }
         setSeriesGroups((prev) =>
           prev.map((g, i) =>
             i === groupIndex
@@ -414,7 +464,9 @@ function IdentifyMultiSeriesContent() {
 
     try {
       const langParam = language === "it" ? "&lang=it" : "";
-      const response = await fetch(`/api/tvdb/episodes?seriesId=${series.id}${langParam}`);
+      // Use the active provider's episodes endpoint
+      const episodesEndpoint = activeProvider === "tmdb" ? "/api/tmdb/episodes" : "/api/tvdb/episodes";
+      const response = await fetch(`${episodesEndpoint}?seriesId=${series.id}${langParam}`);
       const data: TVDBApiResponse<TVDBEpisode[]> = await response.json();
 
       if (data.success && data.data) {
@@ -560,6 +612,14 @@ function IdentifyMultiSeriesContent() {
     setSeriesGroups((prev) =>
       prev.map((g, i) =>
         i === groupIndex ? { ...g, searchQuery: query } : g
+      )
+    );
+  };
+
+  const updateSearchYear = (groupIndex: number, year: string) => {
+    setSeriesGroups((prev) =>
+      prev.map((g, i) =>
+        i === groupIndex ? { ...g, searchYear: year } : g
       )
     );
   };
@@ -1284,9 +1344,45 @@ function IdentifyMultiSeriesContent() {
 
                           {/* Search section */}
                           <div className="space-y-1 lg:space-y-2">
-                            <label className="text-xs lg:text-sm font-medium">
-                              {language === "it" ? "Cerca su TVDB" : "Search TVDB"}
-                            </label>
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs lg:text-sm font-medium">
+                                {language === "it" ? "Cerca" : "Search"} {activeProvider.toUpperCase()}
+                              </label>
+                              <div className="flex rounded-md border overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (activeProvider !== "tvdb") {
+                                      setActiveProvider("tvdb");
+                                      setProviderManuallyChanged(true);
+                                    }
+                                  }}
+                                  className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                                    activeProvider === "tvdb"
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-background hover:bg-muted"
+                                  }`}
+                                >
+                                  TVDB
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (activeProvider !== "tmdb") {
+                                      setActiveProvider("tmdb");
+                                      setProviderManuallyChanged(true);
+                                    }
+                                  }}
+                                  className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                                    activeProvider === "tmdb"
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-background hover:bg-muted"
+                                  }`}
+                                >
+                                  TMDB
+                                </button>
+                              </div>
+                            </div>
                             <div className="flex gap-2">
                               <Input
                                 value={currentGroup.searchQuery}
@@ -1294,16 +1390,32 @@ function IdentifyMultiSeriesContent() {
                                 placeholder={language === "it" ? "Cerca serie..." : "Search series..."}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
-                                    performSearch(currentSlide, currentGroup.searchQuery);
+                                    performSearch(currentSlide, currentGroup.searchQuery, currentGroup.searchYear);
                                   }
                                 }}
                                 className="flex-1 h-9 lg:h-10 text-sm"
+                              />
+                              <Input
+                                value={currentGroup.searchYear}
+                                onChange={(e) => {
+                                  // Only allow digits, max 4 chars
+                                  const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                                  updateSearchYear(currentSlide, value);
+                                }}
+                                placeholder={language === "it" ? "Anno" : "Year"}
+                                className="w-20 h-9 lg:h-10 text-sm"
+                                maxLength={4}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    performSearch(currentSlide, currentGroup.searchQuery, currentGroup.searchYear);
+                                  }
+                                }}
                               />
                               <Button
                                 variant="outline"
                                 size="icon"
                                 className="h-9 w-9 lg:h-10 lg:w-10"
-                                onClick={() => performSearch(currentSlide, currentGroup.searchQuery)}
+                                onClick={() => performSearch(currentSlide, currentGroup.searchQuery, currentGroup.searchYear)}
                                 disabled={currentGroup.isSearching}
                               >
                                 {currentGroup.isSearching ? (

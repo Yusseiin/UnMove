@@ -52,6 +52,7 @@ import type {
 } from "@/types/tvdb";
 import type {
   Language,
+  MetadataProvider,
   BaseFolder,
   SeriesNamingTemplate,
   MovieNamingTemplate,
@@ -96,6 +97,7 @@ interface IdentifyDialogProps {
   onConfirm: (newPath: string, hasErrors?: boolean) => void;
   isLoading?: boolean;
   language?: Language;
+  metadataProvider?: MetadataProvider;
   seriesBaseFolders?: BaseFolder[];
   moviesBaseFolders?: BaseFolder[];
   // Global naming templates (used when folder doesn't have override)
@@ -118,6 +120,7 @@ export function IdentifyDialog({
   onConfirm,
   isLoading: externalLoading,
   language = "en",
+  metadataProvider: defaultProvider = "tvdb",
   seriesBaseFolders = [],
   moviesBaseFolders = [],
   seriesNamingTemplate,
@@ -138,6 +141,7 @@ export function IdentifyDialog({
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchYear, setSearchYear] = useState(""); // Year filter for TMDB
   const [searchResults, setSearchResults] = useState<TVDBSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -191,6 +195,27 @@ export function IdentifyDialog({
 
   // Media type filter for search (series or movie)
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"series" | "movie" | null>(null);
+
+  // Metadata provider (TVDB or TMDB)
+  const [activeProvider, setActiveProvider] = useState<MetadataProvider>(defaultProvider);
+
+  // Sync activeProvider with defaultProvider when dialog opens or defaultProvider changes
+  useEffect(() => {
+    if (open) {
+      setActiveProvider(defaultProvider);
+    }
+  }, [open, defaultProvider]);
+
+  // Track if provider was manually changed (not from dialog open/default change)
+  const [providerManuallyChanged, setProviderManuallyChanged] = useState(false);
+
+  // Re-search when provider is manually changed
+  useEffect(() => {
+    if (providerManuallyChanged && searchQuery.trim()) {
+      performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null, searchYear);
+      setProviderManuallyChanged(false);
+    }
+  }, [providerManuallyChanged, activeProvider]);
 
   // FFprobe checkbox state for rename operations
   const [useFFprobe, setUseFFprobe] = useState(true);
@@ -283,11 +308,11 @@ export function IdentifyDialog({
     }
   }, [open, filePath, filePaths]);
 
-  // Auto-search when we have scanned files
+  // Auto-search when search query changes (not year - year requires manual search)
   useEffect(() => {
     if (searchQuery.trim() && !isScanning) {
       const timer = setTimeout(() => {
-        performSearch(searchQuery);
+        performSearch(searchQuery, null, searchYear);
       }, 500);
       return () => clearTimeout(timer);
     }
@@ -385,6 +410,7 @@ export function IdentifyDialog({
     setScanError(null);
     setScannedFiles([]);
     setSearchQuery("");
+    setSearchYear("");
     setSearchResults([]);
     setSelectedResult(null);
     setEpisodes([]);
@@ -409,6 +435,10 @@ export function IdentifyDialog({
       if (data.success && data.data) {
         setScannedFiles(data.data.files);
         setSearchQuery(data.data.suggestedShowName);
+        // Extract year from the first file's parsed data
+        if (data.data.files.length > 0 && data.data.files[0].parsed?.year) {
+          setSearchYear(String(data.data.files[0].parsed.year));
+        }
       } else {
         setScanError(data.error || "Failed to scan files");
       }
@@ -419,7 +449,7 @@ export function IdentifyDialog({
     }
   };
 
-  const performSearch = async (query: string, typeFilter?: "series" | "movie" | null) => {
+  const performSearch = async (query: string, typeFilter?: "series" | "movie" | null, year?: string) => {
     setIsSearching(true);
     setSearchError(null);
     setSelectedResult(null);
@@ -432,10 +462,21 @@ export function IdentifyDialog({
     try {
       // Use passed typeFilter or fall back to state
       const searchType = typeFilter !== undefined ? typeFilter : mediaTypeFilter;
-      const response = await fetch("/api/tvdb/search", {
+      // Use the active provider's search endpoint
+      const searchEndpoint = activeProvider === "tmdb" ? "/api/tmdb/search" : "/api/tvdb/search";
+      // Build request body - include year for both providers
+      const requestBody: { query: string; lang: string; type: typeof searchType; year?: string } = {
+        query,
+        lang: language,
+        type: searchType,
+      };
+      if (year) {
+        requestBody.year = year;
+      }
+      const response = await fetch(searchEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, lang: language, type: searchType }),
+        body: JSON.stringify(requestBody),
       });
 
       const data: TVDBApiResponse<TVDBSearchResult[]> = await response.json();
@@ -451,6 +492,11 @@ export function IdentifyDialog({
           }
         }
       } else {
+        // Check for API key missing error
+        if (data.error?.startsWith("API_KEY_MISSING:")) {
+          const provider = data.error.split(":")[1];
+          showErrorToast(`${provider} API key missing`, "Please add it to your .env file.");
+        }
         setSearchError(data.error || "Search failed");
         setSearchResults([]);
       }
@@ -468,7 +514,9 @@ export function IdentifyDialog({
     try {
       // Fetch episodes, with Italian translations only if language is Italian
       const langParam = language === "it" ? "&lang=it" : "";
-      const response = await fetch(`/api/tvdb/episodes?seriesId=${seriesId}${langParam}`);
+      // Use the active provider's episodes endpoint
+      const episodesEndpoint = activeProvider === "tmdb" ? "/api/tmdb/episodes" : "/api/tvdb/episodes";
+      const response = await fetch(`${episodesEndpoint}?seriesId=${seriesId}${langParam}`);
       const data: TVDBApiResponse<TVDBEpisode[]> = await response.json();
 
       if (data.success && data.data) {
@@ -563,7 +611,7 @@ export function IdentifyDialog({
           file,
           episode: null,
           newPath: "",
-          error: `Episode S${formatSeason(season)}E${formatSeason(epNum)} not found in TVDB`,
+          error: `Episode S${formatSeason(season)}E${formatSeason(epNum)} not found`,
         };
       }
 
@@ -1179,7 +1227,7 @@ export function IdentifyDialog({
               ? "Scanning files..."
               : scannedFiles.length > 0
                 ? `Found ${scannedFiles.length} video file${scannedFiles.length !== 1 ? "s" : ""}`
-                : "Search TVDB to identify and rename files"
+                : `Search ${activeProvider.toUpperCase()} to identify and rename files`
             }
           </DialogDescription>
         </DialogHeader>
@@ -1269,7 +1317,45 @@ export function IdentifyDialog({
           {/* Search input */}
           {!isScanning && scannedFiles.length > 0 && (
             <div className="space-y-1">
-              <label className="text-sm font-medium">Search TVDB</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">
+                  {language === "it" ? "Cerca" : "Search"} {activeProvider.toUpperCase()}
+                </label>
+                <div className="flex rounded-md border overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeProvider !== "tvdb") {
+                        setActiveProvider("tvdb");
+                        setProviderManuallyChanged(true);
+                      }
+                    }}
+                    className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                      activeProvider === "tvdb"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background hover:bg-muted"
+                    }`}
+                  >
+                    TVDB
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeProvider !== "tmdb") {
+                        setActiveProvider("tmdb");
+                        setProviderManuallyChanged(true);
+                      }
+                    }}
+                    className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                      activeProvider === "tmdb"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background hover:bg-muted"
+                    }`}
+                  >
+                    TMDB
+                  </button>
+                </div>
+              </div>
               <div className="flex gap-2">
                 <Input
                   value={searchQuery}
@@ -1280,7 +1366,23 @@ export function IdentifyDialog({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && searchQuery.trim()) {
                       // For multiple files, filter to series only
-                      performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null);
+                      performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null, searchYear);
+                    }
+                  }}
+                />
+                <Input
+                  value={searchYear}
+                  onChange={(e) => {
+                    // Only allow digits, max 4 chars
+                    const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    setSearchYear(value);
+                  }}
+                  placeholder={language === "it" ? "Anno" : "Year"}
+                  className="w-20"
+                  maxLength={4}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && searchQuery.trim()) {
+                      performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null, searchYear);
                     }
                   }}
                 />
@@ -1288,7 +1390,7 @@ export function IdentifyDialog({
                   type="button"
                   variant="outline"
                   size="icon"
-                  onClick={() => performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null)}
+                  onClick={() => performSearch(searchQuery, scannedFiles.length > 1 ? "series" : null, searchYear)}
                   disabled={!searchQuery.trim() || isSearching}
                   title="Search"
                 >
@@ -1310,7 +1412,7 @@ export function IdentifyDialog({
                 {isSearching ? (
                   <div className="p-4 flex items-center justify-center gap-2 text-muted-foreground">
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    <span className="text-sm">{language === "it" ? "Ricerca in corso..." : "Searching TVDB..."}</span>
+                    <span className="text-sm">{language === "it" ? "Ricerca in corso..." : `Searching ${activeProvider.toUpperCase()}...`}</span>
                   </div>
                 ) : searchError ? (
                   <div className="p-3 text-sm text-destructive">{searchError}</div>

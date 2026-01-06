@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { showErrorToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,7 @@ import type {
 } from "@/types/tvdb";
 import type {
   Language,
+  MetadataProvider,
   BaseFolder,
   MovieNamingTemplate,
 } from "@/types/config";
@@ -77,6 +79,7 @@ interface ScannedFile {
 interface FileIdentification {
   file: ScannedFile;
   searchQuery: string;
+  searchYear: string; // Year filter for TMDB
   searchResults: TVDBSearchResult[];
   selectedResult: TVDBSearchResult | null;
   isSearching: boolean;
@@ -97,6 +100,7 @@ interface BatchIdentifyDialogProps {
   onConfirm: (newPath: string) => void;
   isLoading?: boolean;
   language?: Language;
+  metadataProvider?: MetadataProvider;
   moviesBaseFolders?: BaseFolder[];
   // Global movie naming template
   movieNamingTemplate?: MovieNamingTemplate;
@@ -115,6 +119,7 @@ export function BatchIdentifyDialog({
   onConfirm,
   isLoading: externalLoading,
   language = "en",
+  metadataProvider: defaultProvider = "tvdb",
   moviesBaseFolders = [],
   movieNamingTemplate,
   qualityValues,
@@ -137,6 +142,31 @@ export function BatchIdentifyDialog({
 
   // FFprobe checkbox state for rename operations
   const [useFFprobe, setUseFFprobe] = useState(true);
+
+  // Metadata provider (TVDB or TMDB)
+  const [activeProvider, setActiveProvider] = useState<MetadataProvider>(defaultProvider);
+
+  // Sync activeProvider with defaultProvider when dialog opens or defaultProvider changes
+  useEffect(() => {
+    if (open) {
+      setActiveProvider(defaultProvider);
+    }
+  }, [open, defaultProvider]);
+
+  // Track if provider was manually changed (not from dialog open/default change)
+  const [providerManuallyChanged, setProviderManuallyChanged] = useState(false);
+
+  // Re-search all files when provider is manually changed
+  useEffect(() => {
+    if (providerManuallyChanged && fileIdentifications.length > 0) {
+      fileIdentifications.forEach((fi, index) => {
+        if (fi.searchQuery.trim()) {
+          performSearch(index, fi.searchQuery, fi.searchYear);
+        }
+      });
+      setProviderManuallyChanged(false);
+    }
+  }, [providerManuallyChanged, activeProvider]);
 
   // Get the alwaysUseFFprobe setting - for rename use checkbox, for copy/move use folder setting
   const getAlwaysUseFFprobe = useCallback(() => {
@@ -297,6 +327,7 @@ export function BatchIdentifyDialog({
           (file: ScannedFile) => ({
             file,
             searchQuery: file.parsed.cleanName,
+            searchYear: file.parsed.year || "", // Use parsed year if available
             searchResults: [],
             selectedResult: null,
             isSearching: false,
@@ -309,8 +340,8 @@ export function BatchIdentifyDialog({
         setFileIdentifications(identifications);
 
         // Auto-search for each file
-        identifications.forEach((_, index) => {
-          performSearch(index, identifications[index].searchQuery);
+        identifications.forEach((id, index) => {
+          performSearch(index, id.searchQuery, id.searchYear);
         });
       } else {
         setScanError(data.error || "Failed to scan files");
@@ -322,7 +353,7 @@ export function BatchIdentifyDialog({
     }
   };
 
-  const performSearch = async (fileIndex: number, query: string) => {
+  const performSearch = async (fileIndex: number, query: string, year?: string) => {
     if (!query.trim()) return;
 
     setFileIdentifications((prev) =>
@@ -334,10 +365,21 @@ export function BatchIdentifyDialog({
     );
 
     try {
-      const response = await fetch("/api/tvdb/search", {
+      // Use the active provider's search endpoint
+      const searchEndpoint = activeProvider === "tmdb" ? "/api/tmdb/search" : "/api/tvdb/search";
+      // Build request body - include year for both providers
+      const requestBody: { query: string; type: "movie"; lang: string; year?: string } = {
+        query,
+        type: "movie",
+        lang: language,
+      };
+      if (year) {
+        requestBody.year = year;
+      }
+      const response = await fetch(searchEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, type: "movie", lang: language }),
+        body: JSON.stringify(requestBody),
       });
 
       const data: TVDBApiResponse<TVDBSearchResult[]> = await response.json();
@@ -403,6 +445,11 @@ export function BatchIdentifyDialog({
           });
         });
       } else {
+        // Check for API key missing error
+        if (data.error?.startsWith("API_KEY_MISSING:")) {
+          const provider = data.error.split(":")[1];
+          showErrorToast(`${provider} API key missing`, "Please add it to your .env file.");
+        }
         setFileIdentifications((prev) =>
           prev.map((fi, i) =>
             i === fileIndex
@@ -653,7 +700,7 @@ export function BatchIdentifyDialog({
       <DialogContent className="w-[95vw] sm:w-[50vw] sm:min-w-250 max-h-[90dvh] flex flex-col p-3 sm:p-6">
         <DialogHeader className="shrink-0">
           <DialogTitle className="text-base sm:text-lg">
-            {language === "it" ? "Identifica Film" : "Identify Movies"}
+            {language === "it" ? "Identifica Multi Film" : "Identify Movies Separately"}
           </DialogTitle>
           <DialogDescription className="text-xs sm:text-sm">
             {isScanning
@@ -665,8 +712,8 @@ export function BatchIdentifyDialog({
                 ? `${fileIdentifications.length} file da identificare`
                 : `${fileIdentifications.length} file${fileIdentifications.length !== 1 ? "s" : ""} to identify`
               : language === "it"
-              ? "Cerca su TVDB per identificare e rinominare i film"
-              : "Search TVDB to identify and rename movies"}
+              ? `Cerca su ${activeProvider.toUpperCase()} per identificare e rinominare i film`
+              : `Search ${activeProvider.toUpperCase()} to identify and rename movies`}
           </DialogDescription>
         </DialogHeader>
 
@@ -726,6 +773,49 @@ export function BatchIdentifyDialog({
             <div className="flex items-center gap-2 p-3 bg-destructive/10 text-destructive rounded-md text-sm">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {scanError}
+            </div>
+          )}
+
+          {/* Provider toggle */}
+          {!isScanning && fileIdentifications.length > 0 && (
+            <div className="flex items-center justify-between shrink-0">
+              <label className="text-xs sm:text-sm font-medium">
+                {language === "it" ? "Fonte metadati" : "Metadata Provider"}
+              </label>
+              <div className="flex rounded-md border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeProvider !== "tvdb") {
+                      setActiveProvider("tvdb");
+                      setProviderManuallyChanged(true);
+                    }
+                  }}
+                  className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                    activeProvider === "tvdb"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background hover:bg-muted"
+                  }`}
+                >
+                  TVDB
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeProvider !== "tmdb") {
+                      setActiveProvider("tmdb");
+                      setProviderManuallyChanged(true);
+                    }
+                  }}
+                  className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+                    activeProvider === "tmdb"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background hover:bg-muted"
+                  }`}
+                >
+                  TMDB
+                </button>
+              </div>
             </div>
           )}
 
@@ -932,7 +1022,7 @@ export function BatchIdentifyDialog({
                               className="flex-1 h-8 sm:h-9 text-xs sm:text-sm"
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
-                                  performSearch(index, fi.searchQuery);
+                                  performSearch(index, fi.searchQuery, fi.searchYear);
                                 }
                               }}
                               onFocus={(e) => {
@@ -944,10 +1034,30 @@ export function BatchIdentifyDialog({
                                 }
                               }}
                             />
+                            <Input
+                              value={fi.searchYear}
+                              onChange={(e) => {
+                                // Only allow digits, max 4 chars
+                                const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                                setFileIdentifications((prev) =>
+                                  prev.map((f, i) =>
+                                    i === index ? { ...f, searchYear: value } : f
+                                  )
+                                );
+                              }}
+                              placeholder={language === "it" ? "Anno" : "Year"}
+                              className="w-16 sm:w-20 h-8 sm:h-9 text-xs sm:text-sm"
+                              maxLength={4}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  performSearch(index, fi.searchQuery, fi.searchYear);
+                                }
+                              }}
+                            />
                             <Button
                               variant="outline"
                               size="icon"
-                              onClick={() => performSearch(index, fi.searchQuery)}
+                              onClick={() => performSearch(index, fi.searchQuery, fi.searchYear)}
                               disabled={fi.isSearching}
                               className="h-8 w-8 sm:h-9 sm:w-9"
                             >

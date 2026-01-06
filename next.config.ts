@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
         hostname: "thetvdb.com",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "image.tmdb.org",
+        pathname: "/**",
+      },
     ],
   },
   output: "standalone",

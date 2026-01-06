@@ -116,6 +116,7 @@ export interface TVDBSearchRequest {
   query: string;
   type?: "series" | "movie";
   lang?: string; // "it" for Italian, defaults to English
+  year?: string; // Release year filter (TMDB only)
 }
 
 export interface TVDBEpisodesRequest {

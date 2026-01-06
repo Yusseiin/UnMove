@@ -2,6 +2,9 @@
 
 export type Language = "en" | "it";
 
+// Metadata provider options
+export type MetadataProvider = "tvdb" | "tmdb";
+
 // Movie folder structure options
 export type MovieFolderStructure = "year" | "name" | "none";
 // "year" = BasePath/2025/Movie Name (2025).mkv
@@ -96,6 +99,8 @@ export interface AppConfig {
   codecValues?: string[];
   // Custom extra tag values to detect in filenames (e.g., ["10bit", "HDR", "ITA", "ENG"])
   extraTagValues?: string[];
+  // Metadata provider: "tvdb" (TheTVDB) or "tmdb" (TheMovieDB)
+  metadataProvider?: MetadataProvider;
 }
 
 // Default quality values to detect in filenames
@@ -127,6 +132,7 @@ export const defaultConfig: AppConfig = {
   qualityValues: defaultQualityValues,
   codecValues: defaultCodecValues,
   extraTagValues: defaultExtraTagValues,
+  metadataProvider: "tvdb",
 };
 
 // Localized strings

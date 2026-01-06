@@ -9,15 +9,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import type { MetadataProvider } from "@/types/config";
 
 interface TransferChoiceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   operation: "copy" | "move";
   itemCount: number;
+  metadataProvider?: MetadataProvider;
   onNormalTransfer: () => void;
   onIdentify: () => void;
   onBatchIdentify?: () => void; // For identifying multiple movies separately
+  onMultiSeriesTransfer?: () => void; // For identifying multiple different TV series
 }
 
 export function TransferChoiceDialog({
@@ -25,12 +28,15 @@ export function TransferChoiceDialog({
   onOpenChange,
   operation,
   itemCount,
+  metadataProvider = "tvdb",
   onNormalTransfer,
   onIdentify,
   onBatchIdentify,
+  onMultiSeriesTransfer,
 }: TransferChoiceDialogProps) {
   const operationText = operation === "copy" ? "Copy" : "Move";
   const itemText = itemCount === 1 ? "item" : "items";
+  const providerName = metadataProvider === "tmdb" ? "TMDB" : "TVDB";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,10 +66,10 @@ export function TransferChoiceDialog({
             onClick={onIdentify}
           >
             <span className="font-semibold text-sm sm:text-base">
-              {itemCount === 1 ? "Identify File with TVDB" : "Identify TV Series with TVDB"}
+              {itemCount === 1 ? `Identify File with ${providerName}` : `Identify TV Series with ${providerName}`}
             </span>
             <span className="text-xs sm:text-sm text-muted-foreground text-left">
-              Search TVDB to identify and rename as TV series episodes
+              Search {providerName} to identify and rename as TV series episodes
             </span>
           </Button>
 
@@ -76,6 +82,19 @@ export function TransferChoiceDialog({
               <span className="font-semibold text-sm sm:text-base">Identify Movies Separately</span>
               <span className="text-xs sm:text-sm text-muted-foreground text-left">
                 Search each file independently (for multiple movies)
+              </span>
+            </Button>
+          )}
+
+          {onMultiSeriesTransfer && itemCount > 1 && (
+            <Button
+              variant="outline"
+              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+              onClick={onMultiSeriesTransfer}
+            >
+              <span className="font-semibold text-sm sm:text-base">Multiple TV Series</span>
+              <span className="text-xs sm:text-sm text-muted-foreground text-left">
+                Episodes from different series
               </span>
             </Button>
           )}

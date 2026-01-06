@@ -1,6 +1,6 @@
 # Unmove
 
-A self-hosted web application to organize your media library by identifying files using TVDB (The TV Database) and moving them with proper naming conventions.
+A self-hosted web application to organize your media library by identifying files using TVDB (The TV Database) or TMDB (The Movie Database) and moving them with proper naming conventions.
 
 ![License](https://img.shields.io/github/license/yusseiin/unmove)
 ![Docker Pulls](https://img.shields.io/docker/pulls/yusseiin/unmove)
@@ -8,9 +8,10 @@ A self-hosted web application to organize your media library by identifying file
 ## Features
 
 - **File Browser** - Browse your downloads folder with parsed information (title, year, season, episode)
-- **TVDB Integration** - Search and identify movies/TV shows using the TVDB API
-- **Auto-Match** - Automatically matches files to TVDB results based on filename similarity
+- **TVDB & TMDB Integration** - Search and identify movies/TV shows using TVDB or TMDB APIs
+- **Auto-Match** - Automatically matches files to search results based on filename similarity
 - **Batch Processing** - Identify and move multiple files at once
+- **Multiple TV Series** - Handle episodes from different series in a single workflow
 - **Smart Renaming** - Automatically renames files following media server conventions (Plex/Jellyfin/Emby compatible)
 - **Configurable Paths** - Set custom download and media library paths
 
@@ -126,11 +127,21 @@ With `DOWNLOAD_PATH=/data/downloads` and `MEDIA_PATH=/data/media`
 
 With `DOWNLOAD_PATH=/downloads` and `MEDIA_PATH=/media`
 
-### TVDB API Key
+### API Keys
+
+You can use either TVDB, TMDB, or both as metadata providers. Configure your preferred provider in the application settings.
+
+#### TVDB API Key
 
 1. Create a free account at [thetvdb.com](https://thetvdb.com)
 2. Go to [API Information](https://thetvdb.com/api-information) and generate an API key
-3. Enter your API key in the env
+3. Set the `TVDB_API_KEY` environment variable
+
+#### TMDB API Key
+
+1. Create a free account at [themoviedb.org](https://www.themoviedb.org)
+2. Go to [API Settings](https://www.themoviedb.org/settings/api) and request an API key
+3. Set the `TMDB_API_KEY` environment variable
 
 ### Application Settings
 
@@ -139,6 +150,7 @@ Settings are accessible via the gear icon in the top-right corner of the interfa
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Language** | `en` | Interface language and folder naming. Options: `en` (English), `it` (Italian). Affects season folder names (e.g., "Season 01" vs "Stagione 01") |
+| **Metadata Provider** | `tvdb` | Default metadata provider for identifying files. Options: `tvdb` (TVDB), `tmdb` (TMDB). Can be switched per-search in the identify dialogs |
 | **Series Base Folders** | `[]` | List of base folders for TV series. Each folder has a `name` and `preserveQualityInfo` setting to keep quality/encoding info in filenames |
 | **Movies Base Folders** | `[]` | List of base folders for movies. Each folder has a `name` and `preserveQualityInfo` setting to keep quality/encoding info in filenames |
 | **Movie Folder Structure** | `name` | How movie files are organized. Options: `name` (Movie Name (Year)/Movie.mkv), `year` (Year/Movie.mkv), or `none` (Movie.mkv directly in base folder) |
@@ -148,6 +160,7 @@ Settings are accessible via the gear icon in the top-right corner of the interfa
 ```json
 {
   "language": "en",
+  "metadataProvider": "tmdb",
   "seriesBaseFolders": [
     { "name": "TV Series", "preserveQualityInfo": true },
     { "name": "Anime", "preserveQualityInfo": false }
@@ -246,6 +259,7 @@ docker build --build-arg NEXT_PUBLIC_VERSION=0.0.1 -t unmove .
 - [Tailwind CSS](https://tailwindcss.com/) - Styling
 - [shadcn/ui](https://ui.shadcn.com/) - UI components
 - [TVDB API](https://thetvdb.com/api-information) - Media database
+- [TMDB API](https://developer.themoviedb.org/) - Media database
 
 ## Contributing
 
@@ -263,4 +277,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [TVDB](https://thetvdb.com/) for providing the media database API
+- [TMDB](https://www.themoviedb.org/) for providing the media database API
 - [Unraid](https://unraid.net/) community for testing and feedback

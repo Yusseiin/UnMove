@@ -63,5 +63,6 @@
     "10-bit",
     "ITA",
     "AC3"
-  ]
+  ],
+  "metadataProvider": "tmdb"
 }

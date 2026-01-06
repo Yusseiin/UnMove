@@ -19,7 +19,7 @@ let tokenExpiry: number | null = null;
 function getApiKey(): string {
   const apiKey = process.env.TVDB_API_KEY;
   if (!apiKey) {
-    throw new Error("TVDB_API_KEY environment variable is not set");
+    throw new Error("API_KEY_MISSING:TVDB_API_KEY");
   }
   return apiKey;
 }
@@ -161,15 +161,20 @@ function containsNonLatinCharacters(str: string): boolean {
  * @param query - Search query
  * @param type - Filter by series or movie
  * @param lang - Preferred language: "it" for Italian, defaults to English
+ * @param year - Filter by release year
  */
 export async function searchTVDB(
   query: string,
   type?: "series" | "movie",
-  lang?: string
+  lang?: string,
+  year?: string
 ): Promise<TVDBSearchResult[]> {
   const params = new URLSearchParams({ query });
   if (type) {
     params.set("type", type);
+  }
+  if (year) {
+    params.set("year", year);
   }
 
   const response = await tvdbFetch<TVDBSearchResponse>(
