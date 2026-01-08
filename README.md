@@ -1,11 +1,34 @@
-# Unmove
+<h1 align="center">
+  <img src="https://raw.githubusercontent.com/yusseiin/unmove/main/public/icon.png" width="80" height="80" alt="UnMove Logo">
+  <br>
+  UnMove
+</h1>
 
-A self-hosted web application to organize your media library by identifying files using TVDB (The TV Database) or TMDB (The Movie Database) and moving them with proper naming conventions.
+<p align="center">
+  <strong>A self-hosted web application to organize your media library by identifying files using TVDB or TMDB and moving them with proper naming conventions</strong>
+</p>
 
-![License](https://img.shields.io/github/license/yusseiin/unmove)
-![Docker Pulls](https://img.shields.io/docker/pulls/yusseiin/unmove)
-![Language](https://img.shields.io/github/languages/top/yusseiin/unmove)
+<p align="center">
+  <a href="https://hub.docker.com/r/yusseiin/unmove"><img src="https://img.shields.io/docker/pulls/yusseiin/unmove?style=flat-square&logo=docker&logoColor=white" alt="Docker Pulls"></a>
+  <a href="https://github.com/yusseiin/unmove/blob/main/LICENSE"><img src="https://img.shields.io/github/license/yusseiin/unmove?style=flat-square&color=5D6D7E" alt="License"></a>
+  <a href="https://github.com/yusseiin/unmove/stargazers"><img src="https://img.shields.io/github/stars/yusseiin/unmove?style=flat-square&color=E67E22" alt="Stars"></a>
+  <a href="https://github.com/yusseiin/unmove/commits/main"><img src="https://img.shields.io/github/last-commit/yusseiin/unmove?style=flat-square&color=5D6D7E" alt="Last Commit"></a>
+  <br>
+  <img src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js">
+  <img src="https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
+  <img src="https://img.shields.io/badge/Tailwind-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind">
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+</p>
 
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#development">Development</a>
+</p>
+
+---
 
 ## Features
 
