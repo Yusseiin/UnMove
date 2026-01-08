@@ -22,6 +22,13 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2025-01-08",
+    changes: [
+      { type: "fixed", description: "Changing destination folder no longer resets manual episode/season assignments" },
+    ],
+  },
+  {
+     version: "0.0.21",
     date: "2025-01-07",
     changes: [
       { type: "fixed", description: "Fixed the extra tag priority" },

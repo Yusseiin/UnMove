@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { showErrorToast, showSuccessToast, showWarningToast } from "@/components/ui/toast";
 import {
   Dialog,
@@ -357,7 +357,10 @@ export function IdentifyDialog({
     }
   }, [episodes, scannedFiles, selectedResult]);
 
-  // Regenerate mappings when base folder or template changes
+  // Track the previous base folder to detect changes
+  const prevBaseFolderRef = useRef<string>(selectedBaseFolder);
+
+  // Regenerate mappings when template changes (full regeneration needed)
   const seriesTemplateJson = JSON.stringify(seriesNamingTemplate);
   const movieTemplateJson = JSON.stringify(movieNamingTemplate);
 
@@ -367,7 +370,53 @@ export function IdentifyDialog({
     } else if (selectedResult?.type === "movie" && scannedFiles.length > 0) {
       createMovieMapping();
     }
-  }, [selectedBaseFolder, seriesTemplateJson, movieTemplateJson]);
+  }, [seriesTemplateJson, movieTemplateJson]);
+
+  // Update paths when only base folder changes (preserve episode assignments)
+  useEffect(() => {
+    // Skip if base folder didn't actually change
+    if (prevBaseFolderRef.current === selectedBaseFolder) return;
+    prevBaseFolderRef.current = selectedBaseFolder;
+
+    // Only update paths if we have existing mappings (don't regenerate from scratch)
+    if (fileMappings.length === 0) return;
+
+    // Update the base folder prefix in all existing paths
+    setFileMappings(prev => prev.map(mapping => {
+      if (!mapping.newPath || mapping.error || operation === "rename") {
+        return mapping;
+      }
+
+      // Extract the relative path (remove any existing base folder prefix)
+      // Find where the series/movie folder starts (after base folder)
+      const currentPath = mapping.newPath;
+
+      // Identify the content path by finding the first segment that matches series/movie structure
+      // For series: "SeriesName (Year)/Season XX/file.mkv" or just "SeriesName/..."
+      // For movies: "MovieName (Year)/file.mkv" or just "file.mkv"
+
+      // Find the base folders to strip
+      const allBaseFolders = [...seriesBaseFolders, ...moviesBaseFolders].map(f => f.name);
+      let relativePath = currentPath;
+
+      // Check if path starts with any known base folder and strip it
+      for (const baseFolder of allBaseFolders) {
+        if (currentPath.startsWith(baseFolder + "/")) {
+          relativePath = currentPath.substring(baseFolder.length + 1);
+          break;
+        }
+      }
+
+      // Apply new base folder
+      const basePath = selectedBaseFolder ? `${selectedBaseFolder}/` : "";
+      const newPath = `${basePath}${relativePath}`;
+
+      return {
+        ...mapping,
+        newPath,
+      };
+    }));
+  }, [selectedBaseFolder, operation, seriesBaseFolders, moviesBaseFolders]);
 
   // Check for existing files when mappings change and update each mapping's existsAtDestination flag
   useEffect(() => {
