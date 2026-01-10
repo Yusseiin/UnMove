@@ -1381,7 +1381,7 @@ export function IdentifyDialog({
                       value={episodeOrder}
                       onValueChange={(value) => setEpisodeOrder(value as EpisodeOrder)}
                     >
-                      <SelectTrigger className="h-6 text-xs w-auto min-w-[100px]">
+                      <SelectTrigger className="h-6 text-xs w-auto min-w-25">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1700,7 +1700,7 @@ export function IdentifyDialog({
                   <span className="text-amber-600 dark:text-amber-400 font-normal"> · {errorMappings.length} {t.identify.needAttention}</span>
                 )}
               </label>
-              <ScrollArea className="h-[28rem] sm:flex-1 sm:min-h-0 border rounded-md">
+              <ScrollArea className="h-112 sm:flex-1 sm:min-h-0 border rounded-md">
                 <div>
                   {sortedSeasons.map((season) => {
                     const seasonMappings = mappingsBySeason[season];
