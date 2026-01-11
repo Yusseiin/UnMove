@@ -44,9 +44,9 @@
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/Homepage.png" alt="Homepage" width="280">
-  <img src="docs/screenshots/Identify Media.png" alt="Identify Media" width="280">
-  <img src="docs/screenshots/multiseries.png" alt="Multi-Series" width="280">
+  <img src="docs/screenshots/Homepage.png" alt="Homepage" width="200">
+  <img src="docs/screenshots/Identify Media.png" alt="Identify Media" width="200">
+  <img src="docs/screenshots/multiseries.png" alt="Multi-Series" width="200">
 </p>
 
 ## Installation
