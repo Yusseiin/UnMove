@@ -207,7 +207,9 @@ export function IdentifyDialog({
 
   // State for folder renaming options (only for rename operation)
   const [renameSeasonFolders, setRenameSeasonFolders] = useState(false);
+  const [createSeasonFolders, setCreateSeasonFolders] = useState(false);
   const [renameMainFolder, setRenameMainFolder] = useState(false);
+  const [createMainFolder, setCreateMainFolder] = useState(false);
 
   // Media type filter for search (series or movie)
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"series" | "movie" | null>(defaultMediaType ?? null);
@@ -947,9 +949,10 @@ export function IdentifyDialog({
 
       // Build folder rename/create info if enabled
       let folderRenames: { oldPath: string; newName: string }[] | undefined;
+      let folderCreates: { filePath: string; newFileName: string; folderName: string; subfolderName?: string }[] | undefined;
       let seasonFolderCreates: { filePath: string; newFileName: string; seasonFolder: string }[] | undefined;
 
-      if ((renameSeasonFolders || renameMainFolder) && selectedResult?.type === "series") {
+      if ((renameSeasonFolders || renameMainFolder || createSeasonFolders || createMainFolder) && selectedResult?.type === "series") {
         const seriesName = getDisplayName(selectedResult, language);
         const seriesYear = selectedResult.year || "";
         const template = getSeriesNamingTemplate();
@@ -960,8 +963,9 @@ export function IdentifyDialog({
         const { quality, codec, extraTags } = splitQualityInfo(qualityInfo, parseOptions);
 
         // Collect unique folder paths from files and compute new names
-        const folderMap = new Map<string, string>(); // oldPath -> newName
+        const folderMap = new Map<string, string>(); // oldPath -> newName (for renames)
         const seasonCreates: { filePath: string; newFileName: string; seasonFolder: string }[] = [];
+        const mainFolderCreates: { filePath: string; newFileName: string; folderName: string; subfolderName?: string }[] = [];
 
         // Build a map of original file path to new filename from the files array
         const fileRenameMap = new Map<string, string>();
@@ -983,83 +987,72 @@ export function IdentifyDialog({
           // When a file is selected directly, relativePath equals the filename (no folder components)
           const userSelectedFile = m.file.relativePath === m.file.name;
 
-          // Handle combined main folder + season folder creation for directly selected files
-          if (userSelectedFile && renameMainFolder) {
-            // User selected a file directly - need to create folder structure
-            const mainResult = applySeriesTemplate(template, {
-              seriesName,
-              seriesYear,
-              season: 1,
-              episode: 1,
-              episodeTitle: "",
-              quality,
-              codec,
-              extraTags,
-              extension: "mkv",
-            });
-            const expectedSeriesFolder = mainResult.seriesFolder;
+          // Determine folder structure based on what user selected
+          const hasFolderStructure = fullDirParts.length > 0;
+          const hasOnlyOneFolder = fullDirParts.length === 1;
 
-            const newFileName = fileRenameMap.get(m.file.path)?.split("/").pop() || m.newPath.split("/").pop() || "";
-            if (newFileName) {
-              if (renameSeasonFolders && season !== undefined) {
-                // Both main folder and season folder - create combined path
-                const seasonResult = applySeriesTemplate(template, {
-                  seriesName,
-                  seriesYear,
-                  season,
-                  episode: 1,
-                  episodeTitle: "",
-                  quality,
-                  codec,
-                  extraTags,
-                  extension: "mkv",
-                });
-                const expectedSeasonFolder = seasonResult.seasonFolder;
-                // Create path like "Percy Jackson (2023)/Season 01"
-                const combinedFolder = expectedSeasonFolder
-                  ? `${expectedSeriesFolder}/${expectedSeasonFolder}`
-                  : expectedSeriesFolder;
-                seasonCreates.push({
-                  filePath: m.file.path,
-                  newFileName,
-                  seasonFolder: combinedFolder,
-                });
-              } else {
-                // Only main folder - create just the main folder
-                seasonCreates.push({
-                  filePath: m.file.path,
-                  newFileName,
-                  seasonFolder: expectedSeriesFolder,
-                });
-              }
-            }
-          } else if (userSelectedFile && renameSeasonFolders && season !== undefined) {
-            // User selected file directly, only season folders enabled (no main folder)
-            const result = applySeriesTemplate(template, {
-              seriesName,
-              seriesYear,
-              season,
-              episode: 1,
-              episodeTitle: "",
-              quality,
-              codec,
-              extraTags,
-              extension: "mkv",
-            });
-            const expectedSeasonFolder = result.seasonFolder;
-            if (expectedSeasonFolder) {
-              const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
-              seasonCreates.push({
+          console.log("[FRONTEND] Processing file:", m.file.path);
+          console.log("[FRONTEND] fullDirParts:", fullDirParts);
+          console.log("[FRONTEND] userSelectedFile:", userSelectedFile);
+          console.log("[FRONTEND] hasFolderStructure:", hasFolderStructure);
+          console.log("[FRONTEND] hasOnlyOneFolder:", hasOnlyOneFolder);
+          console.log("[FRONTEND] createMainFolder:", createMainFolder);
+          console.log("[FRONTEND] createSeasonFolders:", createSeasonFolders);
+
+          // Get expected folder names
+          const mainResult = applySeriesTemplate(template, {
+            seriesName,
+            seriesYear,
+            season: season || 1,
+            episode: 1,
+            episodeTitle: "",
+            quality,
+            codec,
+            extraTags,
+            extension: "mkv",
+          });
+          const expectedSeriesFolder = mainResult.seriesFolder;
+          const expectedSeasonFolder = season !== undefined ? mainResult.seasonFolder : undefined;
+          const newFileName = fileRenameMap.get(m.file.path)?.split("/").pop() || m.newPath.split("/").pop() || "";
+
+          // Handle CREATE main folder - ALWAYS create if checked, regardless of existing structure
+          if (createMainFolder) {
+            console.log("[FRONTEND] → Taking CREATE MAIN FOLDER branch");
+            // CREATE: Build new folder structure
+            if (createSeasonFolders && expectedSeasonFolder) {
+              console.log("[FRONTEND] → Creating main + season folder");
+              // Create main + season folder
+              mainFolderCreates.push({
                 filePath: m.file.path,
                 newFileName,
-                seasonFolder: expectedSeasonFolder,
+                folderName: expectedSeriesFolder,
+                subfolderName: expectedSeasonFolder,
+              });
+            } else {
+              console.log("[FRONTEND] → Creating just main folder");
+              // Create just main folder
+              mainFolderCreates.push({
+                filePath: m.file.path,
+                newFileName,
+                folderName: expectedSeriesFolder,
               });
             }
-          } else {
-            // User selected a folder - handle folder renames
-
+          }
+          // Handle CREATE season folder (without main folder) - ALWAYS create if checked
+          else if (createSeasonFolders && expectedSeasonFolder) {
+            console.log("[FRONTEND] → Taking CREATE SEASON FOLDER ONLY branch");
+            // CREATE season folder only
+            seasonCreates.push({
+              filePath: m.file.path,
+              newFileName,
+              seasonFolder: expectedSeasonFolder,
+            });
+          }
+          // Handle RENAME operations (for existing folder structures)
+          else if (hasFolderStructure && (renameMainFolder || renameSeasonFolders)) {
+            console.log("[FRONTEND] → Taking RENAME/EXISTING FOLDER branch");
             // Handle season folder rename/create
-            if (renameSeasonFolders && season !== undefined) {
+            if ((renameSeasonFolders || createSeasonFolders) && season !== undefined && expectedSeasonFolder) {
               const result = applySeriesTemplate(template, {
                 seriesName,
                 seriesYear,
@@ -1143,10 +1136,19 @@ export function IdentifyDialog({
           .map(([oldPath, newName]) => ({ oldPath, newName }))
           .sort((a, b) => b.oldPath.split("/").length - a.oldPath.split("/").length);
 
+        // Set folder creates if any
+        if (mainFolderCreates.length > 0) {
+          folderCreates = mainFolderCreates;
+        }
+
         // Set season folder creates if any
         if (seasonCreates.length > 0) {
           seasonFolderCreates = seasonCreates;
         }
+
+        console.log("[FRONTEND] Final folderRenames:", folderRenames);
+        console.log("[FRONTEND] Final folderCreates:", folderCreates);
+        console.log("[FRONTEND] Final seasonFolderCreates:", seasonFolderCreates);
       }
 
       // Use streaming API for progress updates
@@ -1155,7 +1157,7 @@ export function IdentifyDialog({
       const response = await fetch("/api/files/batch-rename-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files, operation, overwrite: true, pane, folderRenames, seasonFolderCreates }),
+        body: JSON.stringify({ files, operation, overwrite: true, pane, folderRenames, folderCreates, seasonFolderCreates }),
       });
 
       if (!response.ok || !response.body) {
@@ -1219,7 +1221,7 @@ export function IdentifyDialog({
       setIsProcessing(false);
       setProgress(null);
     }
-  }, [fileMappings, operation, onConfirm, renameSeasonFolders, renameMainFolder, selectedResult, scannedFiles, language, getSeriesNamingTemplate, getQualityInfo, pane]);
+  }, [fileMappings, operation, onConfirm, renameSeasonFolders, renameMainFolder, createSeasonFolders, createMainFolder, selectedResult, scannedFiles, language, getSeriesNamingTemplate, getQualityInfo, pane]);
 
   const isLoading = externalLoading || isProcessing;
   const validMappings = fileMappings.filter(m => m.newPath && !m.error && !m.skipped);
@@ -1659,15 +1661,15 @@ export function IdentifyDialog({
                 <>
                   <div className="flex items-center gap-2">
                     <Checkbox
-                      id="rename-season-folders"
-                      checked={renameSeasonFolders}
-                      onCheckedChange={(checked) => setRenameSeasonFolders(checked === true)}
+                      id="create-main-folder"
+                      checked={createMainFolder}
+                      onCheckedChange={(checked) => setCreateMainFolder(checked === true)}
                     />
                     <label
-                      htmlFor="rename-season-folders"
+                      htmlFor="create-main-folder"
                       className="text-sm cursor-pointer select-none"
                     >
-                      {t.identify.renameSeasonFolders}
+                      {t.identify.createMainFolder}
                     </label>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1681,6 +1683,32 @@ export function IdentifyDialog({
                       className="text-sm cursor-pointer select-none"
                     >
                       {t.identify.renameMainFolder}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="create-season-folders"
+                      checked={createSeasonFolders}
+                      onCheckedChange={(checked) => setCreateSeasonFolders(checked === true)}
+                    />
+                    <label
+                      htmlFor="create-season-folders"
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      {t.identify.createSeasonFolders}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="rename-season-folders"
+                      checked={renameSeasonFolders}
+                      onCheckedChange={(checked) => setRenameSeasonFolders(checked === true)}
+                    />
+                    <label
+                      htmlFor="rename-season-folders"
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      {t.identify.renameSeasonFolders}
                     </label>
                   </div>
                 </>

@@ -21,6 +21,13 @@ interface FolderRename {
   newName: string; // New folder name (just the name, not path)
 }
 
+interface FolderCreate {
+  filePath: string; // Original file path (before renaming)
+  newFileName: string; // New filename after renaming
+  folderName: string; // Folder name to create (e.g., "Percy Jackson (2023)")
+  subfolderName?: string; // Optional subfolder name (e.g., "Season 01")
+}
+
 interface SeasonFolderCreate {
   filePath: string; // Original file path (before renaming)
   newFileName: string; // New filename after renaming
@@ -35,6 +42,7 @@ interface BatchRenameRequest {
   overwrite?: boolean; // If true, overwrite existing files
   pane?: "downloads" | "media"; // For rename operation: which pane the files are from
   folderRenames?: FolderRename[]; // Folders to rename after file operations (sorted deepest first)
+  folderCreates?: FolderCreate[]; // Folders to create and move files into (for main folder creation)
   seasonFolderCreates?: SeasonFolderCreate[]; // Season folders to create and move files into
 }
 
@@ -202,7 +210,7 @@ async function copyDirectoryWithProgress(
 
 export async function POST(request: NextRequest) {
   const body: BatchRenameRequest = await request.json();
-  const { files, sourcePaths, destinationFolder, operation, overwrite = false, pane = "downloads", folderRenames, seasonFolderCreates } = body;
+  const { files, sourcePaths, destinationFolder, operation, overwrite = false, pane = "downloads", folderRenames, folderCreates, seasonFolderCreates } = body;
 
   // Validate request - support two modes:
   // 1. files array with explicit source->dest mappings (for identify/rename)
@@ -653,8 +661,145 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Create main folders (and optional subfolders) and move files into them (for rename operation only)
+        if (operation === "rename" && folderCreates && folderCreates.length > 0) {
+          console.log("\n[FOLDER-CREATE] Starting folder creation process");
+          console.log("[FOLDER-CREATE] Total folder creates:", folderCreates.length);
+          console.log("[FOLDER-CREATE] Folder creates list:", JSON.stringify(folderCreates, null, 2));
+
+          // Group by folder structure to avoid duplicate creation
+          const folderGroups = new Map<string, FolderCreate[]>();
+
+          for (const create of folderCreates) {
+            // Key is the full folder path (folderName/subfolderName or just folderName)
+            const key = create.subfolderName
+              ? `${create.folderName}/${create.subfolderName}`
+              : create.folderName;
+            const group = folderGroups.get(key) || [];
+            group.push(create);
+            folderGroups.set(key, group);
+          }
+
+          console.log("[FOLDER-CREATE] Grouped by folder structure:", Array.from(folderGroups.keys()));
+
+          for (const [folderPath, creates] of folderGroups) {
+            console.log("\n[FOLDER-CREATE] Processing folder structure:", folderPath);
+            console.log("[FOLDER-CREATE] Number of files for this folder:", creates.length);
+            try {
+              const firstCreate = creates[0];
+              console.log("[FOLDER-CREATE] First file path:", firstCreate.filePath);
+
+              // Build the directory path from the original file location
+              const normalizedFilePath = firstCreate.filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+              console.log("[FOLDER-CREATE] Normalized file path:", normalizedFilePath);
+              const filePathParts = normalizedFilePath.split("/");
+              console.log("[FOLDER-CREATE] File path parts:", filePathParts);
+              filePathParts.pop(); // Remove filename
+
+              // Get the parent directory where files currently are
+              const currentDirPath = filePathParts.join("/");
+              console.log("[FOLDER-CREATE] Current directory path:", currentDirPath);
+              const currentDir = currentDirPath
+                ? path.join(sourceBase, currentDirPath)
+                : sourceBase;
+              console.log("[FOLDER-CREATE] Current directory absolute:", currentDir);
+
+              // Build the target folder structure
+              const targetFolderPath = firstCreate.subfolderName
+                ? path.join(currentDir, firstCreate.folderName, firstCreate.subfolderName)
+                : path.join(currentDir, firstCreate.folderName);
+              console.log("[FOLDER-CREATE] Target folder path:", targetFolderPath);
+
+              // Security check
+              const normalizedTarget = path.resolve(targetFolderPath);
+              const normalizedBase = path.resolve(sourceBase);
+              console.log("[FOLDER-CREATE] Normalized target:", normalizedTarget);
+              console.log("[FOLDER-CREATE] Normalized base:", normalizedBase);
+              if (!normalizedTarget.startsWith(normalizedBase)) {
+                console.log("[FOLDER-CREATE] ❌ SKIPPED: Security check failed - path is outside base");
+                continue;
+              }
+
+              // Create the folder structure
+              try {
+                await fs.access(targetFolderPath);
+                console.log("[FOLDER-CREATE] Target folder already exists");
+              } catch {
+                console.log("[FOLDER-CREATE] Creating folder structure with permissions...");
+                await mkdirWithPermissions(targetFolderPath, sourceBase);
+                console.log("[FOLDER-CREATE] ✅ Folder structure created successfully");
+              }
+
+              // Move each file into the target folder
+              console.log("[FOLDER-CREATE] Moving files into folder...");
+              for (const create of creates) {
+                console.log("\n[FOLDER-CREATE] Processing file:", create.filePath);
+                console.log("[FOLDER-CREATE] New filename:", create.newFileName);
+                try {
+                  // Build the file's current location
+                  const createNormalized = create.filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+                  const createParts = createNormalized.split("/");
+                  const originalFileName = createParts.pop();
+                  console.log("[FOLDER-CREATE] Original filename:", originalFileName);
+                  const createDirPath = createParts.join("/");
+                  console.log("[FOLDER-CREATE] File directory path:", createDirPath);
+                  const fileParentDir = createDirPath
+                    ? path.join(sourceBase, createDirPath)
+                    : sourceBase;
+                  console.log("[FOLDER-CREATE] File parent directory:", fileParentDir);
+
+                  // Check for renamed file first, then original
+                  const newFilePath = path.join(fileParentDir, create.newFileName);
+                  const originalFilePath = path.join(fileParentDir, originalFileName || "");
+                  console.log("[FOLDER-CREATE] New file path to check:", newFilePath);
+                  console.log("[FOLDER-CREATE] Original file path to check:", originalFilePath);
+
+                  let currentFilePath: string;
+                  try {
+                    await fs.access(newFilePath);
+                    currentFilePath = newFilePath;
+                    console.log("[FOLDER-CREATE] ✓ Found file at new path");
+                  } catch {
+                    try {
+                      await fs.access(originalFilePath);
+                      currentFilePath = originalFilePath;
+                      console.log("[FOLDER-CREATE] ✓ Found file at original path");
+                    } catch {
+                      console.log("[FOLDER-CREATE] ❌ SKIPPED: File not found at either path");
+                      continue;
+                    }
+                  }
+
+                  const destFilePath = path.join(targetFolderPath, path.basename(currentFilePath));
+                  console.log("[FOLDER-CREATE] Destination file path:", destFilePath);
+
+                  // Check if file is already in the target folder
+                  if (path.resolve(fileParentDir) === path.resolve(targetFolderPath)) {
+                    console.log("[FOLDER-CREATE] ⏭️  SKIPPED: File already in target folder");
+                    continue;
+                  }
+
+                  // Move the file
+                  console.log("[FOLDER-CREATE] Moving file...");
+                  await fs.rename(currentFilePath, destFilePath);
+                  await setFilePermissions(destFilePath);
+                  console.log("[FOLDER-CREATE] ✅ File moved successfully");
+                } catch (err) {
+                  console.log("[FOLDER-CREATE] ❌ ERROR moving file:", (err as Error).message);
+                }
+              }
+            } catch (err) {
+              console.log("[FOLDER-CREATE] ❌ ERROR processing folder creation:", (err as Error).message);
+            }
+          }
+          console.log("\n[FOLDER-CREATE] Folder creation process complete");
+        }
+
         // Create season folders and move files into them (for rename operation only)
         if (operation === "rename" && seasonFolderCreates && seasonFolderCreates.length > 0) {
+          console.log("\n[SEASON-FOLDER] Starting season folder creation process");
+          console.log("[SEASON-FOLDER] Total season folder creates:", seasonFolderCreates.length);
+          console.log("[SEASON-FOLDER] Season folder creates list:", JSON.stringify(seasonFolderCreates, null, 2));
 
           // Group by season folder to avoid creating the same folder multiple times
           // Each entry contains: { filePath (original), newFileName (after rename), seasonFolder }
@@ -666,34 +811,50 @@ export async function POST(request: NextRequest) {
             folderGroups.set(create.seasonFolder, group);
           }
 
+          console.log("[SEASON-FOLDER] Grouped by season folder:", Array.from(folderGroups.keys()));
+
           for (const [seasonFolder, creates] of folderGroups) {
+            console.log("\n[SEASON-FOLDER] Processing season folder:", seasonFolder);
+            console.log("[SEASON-FOLDER] Number of files for this season:", creates.length);
             try {
               // Build the parent directory path manually from the original file path
               // We can't use validatePath because the original file no longer exists (it was renamed)
               const firstCreate = creates[0];
+              console.log("[SEASON-FOLDER] First file path:", firstCreate.filePath);
               const normalizedFilePath = firstCreate.filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+              console.log("[SEASON-FOLDER] Normalized file path:", normalizedFilePath);
               const filePathParts = normalizedFilePath.split("/");
+              console.log("[SEASON-FOLDER] File path parts:", filePathParts);
               filePathParts.pop(); // Remove filename to get directory path
               let dirRelativePath = filePathParts.join("/");
+              console.log("[SEASON-FOLDER] Directory relative path (before season check):", dirRelativePath);
 
               // Check if file is currently inside a season folder - if so, go up one level
               // Season folder should be created at the series level, not inside another season folder
               const lastDirPart = filePathParts[filePathParts.length - 1];
+              console.log("[SEASON-FOLDER] Last directory part:", lastDirPart);
               const isInsideSeasonFolder = lastDirPart && /Season\s*\d{1,2}/i.test(lastDirPart);
+              console.log("[SEASON-FOLDER] Is inside season folder?", isInsideSeasonFolder);
               if (isInsideSeasonFolder && filePathParts.length > 1) {
                 filePathParts.pop(); // Remove the current season folder
                 dirRelativePath = filePathParts.join("/");
+                console.log("[SEASON-FOLDER] Adjusted directory relative path (went up one level):", dirRelativePath);
               }
 
               // Build absolute path for the series directory (where season folders should be)
               const seriesDir = dirRelativePath
                 ? path.join(sourceBase, dirRelativePath)
                 : sourceBase;
+              console.log("[SEASON-FOLDER] Series directory path:", seriesDir);
+              console.log("[SEASON-FOLDER] Source base:", sourceBase);
 
               // Security check - ensure we're still within sourceBase
               const normalizedSeriesDir = path.resolve(seriesDir);
               const normalizedBase = path.resolve(sourceBase);
+              console.log("[SEASON-FOLDER] Normalized series dir:", normalizedSeriesDir);
+              console.log("[SEASON-FOLDER] Normalized base:", normalizedBase);
               if (!normalizedSeriesDir.startsWith(normalizedBase)) {
+                console.log("[SEASON-FOLDER] ❌ SKIPPED: Security check failed - path is outside base");
                 continue;
               }
 
@@ -701,92 +862,125 @@ export async function POST(request: NextRequest) {
               try {
                 const seriesDirStats = await fs.stat(seriesDir);
                 if (!seriesDirStats.isDirectory()) {
+                  console.log("[SEASON-FOLDER] ❌ SKIPPED: Series path exists but is not a directory");
                   continue;
                 }
-              } catch {
+                console.log("[SEASON-FOLDER] ✓ Series directory exists");
+              } catch (err) {
+                console.log("[SEASON-FOLDER] ❌ SKIPPED: Series directory does not exist:", (err as Error).message);
                 continue;
               }
 
               const seasonFolderFull = path.join(seriesDir, seasonFolder);
+              console.log("[SEASON-FOLDER] Season folder full path:", seasonFolderFull);
 
               // Create the season folder if it doesn't exist
               try {
                 await fs.access(seasonFolderFull);
+                console.log("[SEASON-FOLDER] Season folder already exists");
               } catch {
                 // Create the folder with proper permissions on ALL intermediate directories
                 // This handles nested paths like "Series (2023)/Season 01"
+                console.log("[SEASON-FOLDER] Creating season folder with permissions...");
                 await mkdirWithPermissions(seasonFolderFull, seriesDir);
+                console.log("[SEASON-FOLDER] ✅ Season folder created successfully");
               }
 
               // Move each file into the season folder
               // Files have already been renamed, so we need to use the new filename
+              console.log("[SEASON-FOLDER] Moving files into season folder...");
               for (const create of creates) {
+                console.log("\n[SEASON-FOLDER] Processing file:", create.filePath);
+                console.log("[SEASON-FOLDER] New filename:", create.newFileName);
                 try {
                   // Build the file's current location path manually
                   const createNormalized = create.filePath.replace(/\\/g, "/").replace(/^\/+/, "");
                   const createParts = createNormalized.split("/");
                   const originalFileName = createParts.pop(); // Remove and store original filename
+                  console.log("[SEASON-FOLDER] Original filename:", originalFileName);
                   const createDirPath = createParts.join("/");
+                  console.log("[SEASON-FOLDER] File directory path:", createDirPath);
                   const fileParentDir = createDirPath
                     ? path.join(sourceBase, createDirPath)
                     : sourceBase;
+                  console.log("[SEASON-FOLDER] File parent directory:", fileParentDir);
 
                   // The file might have the new name (if renamed) or original name (if skipped/same)
                   const newFilePath = path.join(fileParentDir, create.newFileName);
                   const originalFilePath = path.join(fileParentDir, originalFileName || "");
+                  console.log("[SEASON-FOLDER] New file path to check:", newFilePath);
+                  console.log("[SEASON-FOLDER] Original file path to check:", originalFilePath);
 
                   // First try the new filename, then fallback to original
                   let currentFilePath: string;
                   try {
                     await fs.access(newFilePath);
                     currentFilePath = newFilePath;
+                    console.log("[SEASON-FOLDER] ✓ Found file at new path");
                   } catch {
                     // Try original filename
                     try {
                       await fs.access(originalFilePath);
                       currentFilePath = originalFilePath;
+                      console.log("[SEASON-FOLDER] ✓ Found file at original path");
                     } catch {
+                      console.log("[SEASON-FOLDER] ❌ SKIPPED: File not found at either path");
                       continue;
                     }
                   }
 
                   const destFilePath = path.join(seasonFolderFull, path.basename(currentFilePath));
+                  console.log("[SEASON-FOLDER] Destination file path:", destFilePath);
 
                   // Check if file is already in the season folder
                   if (path.resolve(fileParentDir) === path.resolve(seasonFolderFull)) {
+                    console.log("[SEASON-FOLDER] ⏭️  SKIPPED: File already in season folder");
                     continue;
                   }
 
                   // Move the file
+                  console.log("[SEASON-FOLDER] Moving file...");
                   await fs.rename(currentFilePath, destFilePath);
                   await setFilePermissions(destFilePath);
-                } catch {
+                  console.log("[SEASON-FOLDER] ✅ File moved successfully");
+                } catch (err) {
+                  console.log("[SEASON-FOLDER] ❌ ERROR moving file:", (err as Error).message);
                   // Ignore move errors
                 }
               }
-            } catch {
+            } catch (err) {
+              console.log("[SEASON-FOLDER] ❌ ERROR processing season folder:", (err as Error).message);
               // Ignore folder creation errors
             }
           }
+          console.log("\n[SEASON-FOLDER] Season folder creation process complete");
         }
 
         // Rename folders if requested (for rename operation only)
         // folderRenames should be sorted deepest first to avoid conflicts
         const folderRenameErrors: string[] = [];
         if (operation === "rename" && folderRenames && folderRenames.length > 0) {
+          console.log("[FOLDER-RENAME] Starting folder rename process");
+          console.log("[FOLDER-RENAME] Total folders to rename:", folderRenames.length);
+          console.log("[FOLDER-RENAME] Folder renames list:", JSON.stringify(folderRenames, null, 2));
 
           // Track renamed folders to update paths for subsequent renames
           const renamedPaths = new Map<string, string>(); // oldPath -> newPath
 
           for (const folderRename of folderRenames) {
+            console.log("\n[FOLDER-RENAME] Processing folder:", folderRename.oldPath, "->", folderRename.newName);
             try {
               // Apply any previous renames to the path
               let currentOldPath = folderRename.oldPath;
+              console.log("[FOLDER-RENAME] Original path:", currentOldPath);
+
               for (const [oldP, newP] of renamedPaths) {
                 if (currentOldPath.startsWith(oldP + "/")) {
                   currentOldPath = newP + currentOldPath.slice(oldP.length);
+                  console.log("[FOLDER-RENAME] Updated path after previous rename:", currentOldPath);
                 } else if (currentOldPath === oldP) {
                   currentOldPath = newP;
+                  console.log("[FOLDER-RENAME] Path matches previous rename:", currentOldPath);
                 }
               }
 
@@ -798,12 +992,20 @@ export async function POST(request: NextRequest) {
                 .filter(part => part !== ".." && part !== "." && part.length > 0)
                 .join("/");
 
+              console.log("[FOLDER-RENAME] Sanitized path:", sanitizedPath);
+
               const folderFull = path.join(sourceBase, sanitizedPath);
+              console.log("[FOLDER-RENAME] Full folder path:", folderFull);
+              console.log("[FOLDER-RENAME] Source base:", sourceBase);
 
               // Security check
               const normalizedFolder = path.resolve(folderFull);
               const normalizedBase = path.resolve(sourceBase);
+              console.log("[FOLDER-RENAME] Normalized folder:", normalizedFolder);
+              console.log("[FOLDER-RENAME] Normalized base:", normalizedBase);
+
               if (!normalizedFolder.startsWith(normalizedBase + path.sep) && normalizedFolder !== normalizedBase) {
+                console.log("[FOLDER-RENAME] ❌ SKIPPED: Security check failed - path is outside base");
                 continue;
               }
 
@@ -811,18 +1013,24 @@ export async function POST(request: NextRequest) {
               try {
                 const stats = await fs.stat(folderFull);
                 if (!stats.isDirectory()) {
+                  console.log("[FOLDER-RENAME] ❌ SKIPPED: Path exists but is not a directory");
                   continue;
                 }
-              } catch {
+                console.log("[FOLDER-RENAME] ✓ Path exists and is a directory");
+              } catch (err) {
+                console.log("[FOLDER-RENAME] ❌ SKIPPED: Directory does not exist or cannot be accessed:", (err as Error).message);
                 continue;
               }
 
               // Build new folder path (same parent, new name)
               const parentDir = path.dirname(folderFull);
               const newFolderFull = path.join(parentDir, folderRename.newName);
+              console.log("[FOLDER-RENAME] Parent directory:", parentDir);
+              console.log("[FOLDER-RENAME] New folder full path:", newFolderFull);
 
               // Skip if already has the correct name
               if (path.basename(folderFull) === folderRename.newName) {
+                console.log("[FOLDER-RENAME] ⏭️  SKIPPED: Folder already has the correct name");
                 continue;
               }
 
@@ -830,9 +1038,11 @@ export async function POST(request: NextRequest) {
               try {
                 await fs.access(newFolderFull);
                 // Destination exists - skip this rename to avoid data loss
+                console.log("[FOLDER-RENAME] ⏭️  SKIPPED: Destination already exists");
                 continue;
               } catch {
                 // Good - destination doesn't exist
+                console.log("[FOLDER-RENAME] ✓ Destination does not exist, proceeding with rename");
               }
 
               // Rename the folder with retry logic for Windows EPERM errors
@@ -843,15 +1053,19 @@ export async function POST(request: NextRequest) {
 
               for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
+                  console.log(`[FOLDER-RENAME] Attempting rename (attempt ${attempt}/${maxRetries})`);
                   await fs.rename(folderFull, newFolderFull);
                   await setDirectoryPermissions(newFolderFull);
                   renameSuccess = true;
+                  console.log("[FOLDER-RENAME] ✅ SUCCESS: Folder renamed successfully");
                   break;
                 } catch (renameErr: unknown) {
                   const errCode = (renameErr as NodeJS.ErrnoException).code;
+                  console.log(`[FOLDER-RENAME] ⚠️  Rename attempt ${attempt} failed:`, errCode, (renameErr as Error).message);
 
                   // EPERM on Windows often means the folder is temporarily locked
                   if (errCode === "EPERM" && attempt < maxRetries) {
+                    console.log(`[FOLDER-RENAME] Waiting ${retryDelay}ms before retry...`);
                     await new Promise(resolve => setTimeout(resolve, retryDelay));
                     continue;
                   }
@@ -864,8 +1078,10 @@ export async function POST(request: NextRequest) {
                 // Track the rename for updating subsequent paths
                 const newPath = sanitizedPath.replace(/[^/]+$/, folderRename.newName);
                 renamedPaths.set(sanitizedPath, newPath);
+                console.log("[FOLDER-RENAME] Tracked rename mapping:", sanitizedPath, "->", newPath);
               }
             } catch (err) {
+              console.log("[FOLDER-RENAME] ❌ ERROR:", (err as Error).message);
               // Check for Windows EPERM specifically
               if ((err as NodeJS.ErrnoException).code === "EPERM") {
                 folderRenameErrors.push(`Folder "${folderRename.oldPath}" is locked (close any programs using it)`);
@@ -874,6 +1090,8 @@ export async function POST(request: NextRequest) {
               }
             }
           }
+          console.log("\n[FOLDER-RENAME] Folder rename process complete");
+          console.log("[FOLDER-RENAME] Rename errors:", folderRenameErrors);
         }
 
         // Combine file errors with folder rename errors

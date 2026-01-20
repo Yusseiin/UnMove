@@ -22,6 +22,13 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-01-20",
+    changes: [
+      { type: "added", description: "Separate Create and Rename options for main folders and season folders" },
+    ],
+  },
+  {
+    version: "v0.0.23",
     date: "2025-01-10",
     changes: [
       { type: "added", description: "German language support" },

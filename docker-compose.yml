@@ -3,6 +3,7 @@ version: "3.9"
 services:
   unmove:
     image: yusseiin/unmove:v0.0.2
+    platform: linux/amd64
     build:
       context: .
       args:
