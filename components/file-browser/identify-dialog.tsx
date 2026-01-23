@@ -992,12 +992,16 @@ export function IdentifyDialog({
           const hasOnlyOneFolder = fullDirParts.length === 1;
 
           console.log("[FRONTEND] Processing file:", m.file.path);
+          console.log("[FRONTEND] m.file.relativePath:", m.file.relativePath);
+          console.log("[FRONTEND] m.file.name:", m.file.name);
           console.log("[FRONTEND] fullDirParts:", fullDirParts);
           console.log("[FRONTEND] userSelectedFile:", userSelectedFile);
           console.log("[FRONTEND] hasFolderStructure:", hasFolderStructure);
           console.log("[FRONTEND] hasOnlyOneFolder:", hasOnlyOneFolder);
           console.log("[FRONTEND] createMainFolder:", createMainFolder);
+          console.log("[FRONTEND] renameMainFolder:", renameMainFolder);
           console.log("[FRONTEND] createSeasonFolders:", createSeasonFolders);
+          console.log("[FRONTEND] renameSeasonFolders:", renameSeasonFolders);
 
           // Get expected folder names
           const mainResult = applySeriesTemplate(template, {
@@ -1119,13 +1123,43 @@ export function IdentifyDialog({
               });
               const expectedSeriesFolder = result.seriesFolder;
 
-              // User selected a folder - rename the main folder
-              const mainFolderName = fullDirParts[0];
-              if (mainFolderName && mainFolderName !== expectedSeriesFolder) {
-                // The main folder needs to be renamed - use just the folder name as path
-                if (!folderMap.has(mainFolderName)) {
-                  folderMap.set(mainFolderName, expectedSeriesFolder);
+              // Determine the main folder from relativePath
+              // relativePath is relative to what the user selected/navigated to
+              // So the "main folder" (the folder user selected) is NOT in relativePath
+              const relativePathParts = m.file.relativePath.replace(/\\/g, "/").split("/").filter(p => p.length > 0);
+              relativePathParts.pop(); // Remove filename
+
+              console.log("[FRONTEND] RENAME MAIN FOLDER:");
+              console.log("[FRONTEND] - relativePathParts:", relativePathParts);
+              console.log("[FRONTEND] - fullDirParts:", fullDirParts);
+              console.log("[FRONTEND] - expectedSeriesFolder:", expectedSeriesFolder);
+
+              // The main folder is the folder the user selected, which is:
+              // fullDirParts minus the relativePathParts at the end
+              // Example:
+              //   fullDirParts = ["media", "anime Serie", "Season 01"]
+              //   relativePathParts = ["Season 01"]  (relative to selected folder)
+              //   mainFolder = "anime Serie" at index (3 - 1 - 1) = 1
+              const mainFolderIndex = fullDirParts.length - relativePathParts.length - 1;
+
+              console.log("[FRONTEND] - mainFolderIndex:", mainFolderIndex);
+
+              if (mainFolderIndex >= 0 && mainFolderIndex < fullDirParts.length) {
+                const mainFolderName = fullDirParts[mainFolderIndex];
+                const mainFolderPath = fullDirParts.slice(0, mainFolderIndex + 1).join("/");
+
+                console.log("[FRONTEND] - mainFolderName:", mainFolderName);
+                console.log("[FRONTEND] - mainFolderPath:", mainFolderPath);
+
+                if (mainFolderName && mainFolderName !== expectedSeriesFolder) {
+                  // The main folder needs to be renamed
+                  if (!folderMap.has(mainFolderPath)) {
+                    folderMap.set(mainFolderPath, expectedSeriesFolder);
+                    console.log("[FRONTEND] - Added to folderMap:", mainFolderPath, "->", expectedSeriesFolder);
+                  }
                 }
+              } else {
+                console.log("[FRONTEND] - Could not determine main folder (index out of range)");
               }
             }
           }
