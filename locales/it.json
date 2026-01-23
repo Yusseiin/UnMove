@@ -294,6 +294,21 @@
     "failedToLoad": "Caricamento cartelle fallito",
     "failedToConnect": "Connessione al server fallita"
   },
+  "plex": {
+    "title": "Plex",
+    "description": "Aggiorna le librerie Plex dopo lo spostamento dei file",
+    "howToGetToken": "Come ottenere il token",
+    "libraries": "Librerie",
+    "noLibraries": "Nessuna libreria trovata",
+    "refreshLibrary": "Aggiorna questa libreria",
+    "refreshAll": "Aggiorna tutte le librerie",
+    "refreshing": "Aggiornamento...",
+    "refreshTriggered": "Aggiornamento avviato!",
+    "failedToFetchSections": "Impossibile recuperare le sezioni della libreria",
+    "failedToConnect": "Impossibile connettersi a Plex",
+    "failedToRefresh": "Impossibile aggiornare la libreria",
+    "notConfigured": "Plex non è configurato. Imposta le variabili d'ambiente PLEX_URL e PLEX_TOKEN nel container Docker."
+  },
   "multiSeries": {
     "title": "Serie Multiple",
     "identifyWithProvider": "Identifica con {provider}",

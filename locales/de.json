@@ -294,6 +294,21 @@
     "failedToLoad": "Ordner konnten nicht geladen werden",
     "failedToConnect": "Verbindung zum Server fehlgeschlagen"
   },
+  "plex": {
+    "title": "Plex",
+    "description": "Plex-Bibliotheken nach dem Verschieben von Dateien aktualisieren",
+    "howToGetToken": "So erhalten Sie Ihr Token",
+    "libraries": "Bibliotheken",
+    "noLibraries": "Keine Bibliotheken gefunden",
+    "refreshLibrary": "Diese Bibliothek aktualisieren",
+    "refreshAll": "Alle Bibliotheken aktualisieren",
+    "refreshing": "Aktualisiere...",
+    "refreshTriggered": "Aktualisierung gestartet!",
+    "failedToFetchSections": "Bibliotheksabschnitte konnten nicht abgerufen werden",
+    "failedToConnect": "Verbindung zu Plex fehlgeschlagen",
+    "failedToRefresh": "Bibliothek konnte nicht aktualisiert werden",
+    "notConfigured": "Plex ist nicht konfiguriert. Setzen Sie die Umgebungsvariablen PLEX_URL und PLEX_TOKEN im Docker-Container."
+  },
   "multiSeries": {
     "title": "Mehrere Serien",
     "identifyWithProvider": "Mit {provider} identifizieren",

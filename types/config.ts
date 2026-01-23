@@ -92,6 +92,13 @@ export interface BaseFolder {
   movieNamingTemplate?: MovieNamingTemplate;
 }
 
+// Plex library section (returned from Plex API)
+export interface PlexSection {
+  key: string; // Section ID
+  title: string; // Section name (e.g., "Movies", "TV Shows")
+  type: string; // Type (e.g., "movie", "show")
+}
+
 export interface AppConfig {
   language: Language;
   seriesBaseFolders: BaseFolder[]; // Base folders for TV series (e.g., [{name: "TV Series", preserveQualityInfo: true}])

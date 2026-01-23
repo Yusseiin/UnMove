@@ -294,6 +294,21 @@
     "failedToLoad": "Failed to load folders",
     "failedToConnect": "Failed to connect to server"
   },
+  "plex": {
+    "title": "Plex",
+    "description": "Refresh Plex libraries after moving files",
+    "howToGetToken": "How to get your token",
+    "libraries": "Libraries",
+    "noLibraries": "No libraries found",
+    "refreshLibrary": "Refresh this library",
+    "refreshAll": "Refresh All Libraries",
+    "refreshing": "Refreshing...",
+    "refreshTriggered": "Refresh triggered!",
+    "failedToFetchSections": "Failed to fetch library sections",
+    "failedToConnect": "Failed to connect to Plex",
+    "failedToRefresh": "Failed to refresh library",
+    "notConfigured": "Plex is not configured. Set PLEX_URL and PLEX_TOKEN environment variables in your Docker container."
+  },
   "multiSeries": {
     "title": "Multiple Series",
     "identifyWithProvider": "Identify with {provider}",

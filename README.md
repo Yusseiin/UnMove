@@ -39,6 +39,7 @@
 - **Batch Processing** - Identify and move multiple files at once
 - **Multiple TV Series** - Handle episodes from different series in a single workflow
 - **Smart Renaming** - Automatically renames files following media server conventions (Plex/Jellyfin/Emby compatible)
+- **Plex Integration** - Trigger Plex library refresh directly from the app after moving files
 - **Configurable Paths** - Set custom download and media library paths
 
 ## Screenshots
@@ -85,6 +86,9 @@ services:
       - PGID=100
       - DOWNLOAD_PATH=/data/downloads
       - MEDIA_PATH=/data/media
+      # Optional: Plex integration
+      - PLEX_URL=http://192.168.1.100:32400
+      - PLEX_TOKEN=your-plex-token
     volumes:
       - /mnt/user:/data          # Single mount for instant moves
       - /path/to/config:/config
@@ -135,6 +139,8 @@ Available in Community Applications. Search for "unmove" or install manually usi
 | `PGID` | 100 | Group ID for file permissions |
 | `DOWNLOAD_PATH` | `/data/downloads` | Path to downloads inside container |
 | `MEDIA_PATH` | `/data/media` | Path to media library inside container |
+| `PLEX_URL` | - | Plex server URL (e.g., `http://192.168.1.100:32400`) |
+| `PLEX_TOKEN` | - | Plex authentication token ([how to get it](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)) |
 
 ### Volumes
 
@@ -172,6 +178,23 @@ You can use either TVDB, TMDB, or both as metadata providers. Configure your pre
 1. Create a free account at [themoviedb.org](https://www.themoviedb.org)
 2. Go to [API Settings](https://www.themoviedb.org/settings/api) and request an API key
 3. Set the `TMDB_API_KEY` environment variable
+
+### Plex Integration
+
+UnMove can trigger Plex library refreshes after moving files, so Plex immediately picks up your newly organized media.
+
+#### Setup
+
+1. Get your Plex authentication token ([instructions](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/))
+2. Set the environment variables:
+   - `PLEX_URL`: Your Plex server URL (e.g., `http://192.168.1.100:32400`)
+   - `PLEX_TOKEN`: Your Plex authentication token
+
+#### Usage
+
+Once configured, click the Plex icon in the top navigation bar to:
+- View all your Plex library sections
+- Refresh individual libraries or all libraries at once
 
 ### Application Settings
 
