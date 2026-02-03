@@ -22,6 +22,13 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-02-02",
+    changes: [
+      { type: "fixed", description: "Fixed Folder creation" },
+    ],
+  },
+  {
+    version: "0.0.25",
     date: "2026-01-23",
     changes: [
       { type: "added", description: "Added integration with Plex for force refresh" },

@@ -976,34 +976,9 @@ export function IdentifyDialog({
         for (const m of fileMappings) {
           if (m.skipped || m.error) continue;
 
-          // Get the full path from the file (this is relative to source base, e.g., /Percy Jackson/Season 02/file.mkv)
-          const fullFilePath = m.file.path.replace(/\\/g, "/");
-          const fullDirParts = fullFilePath.split("/").filter(p => p.length > 0);
-          fullDirParts.pop(); // Remove filename
-
           const season = m.episode?.seasonNumber;
 
-          // Check if the user selected individual files (not a folder)
-          // When a file is selected directly, relativePath equals the filename (no folder components)
-          const userSelectedFile = m.file.relativePath === m.file.name;
-
-          // Determine folder structure based on what user selected
-          const hasFolderStructure = fullDirParts.length > 0;
-          const hasOnlyOneFolder = fullDirParts.length === 1;
-
-          console.log("[FRONTEND] Processing file:", m.file.path);
-          console.log("[FRONTEND] m.file.relativePath:", m.file.relativePath);
-          console.log("[FRONTEND] m.file.name:", m.file.name);
-          console.log("[FRONTEND] fullDirParts:", fullDirParts);
-          console.log("[FRONTEND] userSelectedFile:", userSelectedFile);
-          console.log("[FRONTEND] hasFolderStructure:", hasFolderStructure);
-          console.log("[FRONTEND] hasOnlyOneFolder:", hasOnlyOneFolder);
-          console.log("[FRONTEND] createMainFolder:", createMainFolder);
-          console.log("[FRONTEND] renameMainFolder:", renameMainFolder);
-          console.log("[FRONTEND] createSeasonFolders:", createSeasonFolders);
-          console.log("[FRONTEND] renameSeasonFolders:", renameSeasonFolders);
-
-          // Get expected folder names
+          // Get expected folder names from template
           const mainResult = applySeriesTemplate(template, {
             seriesName,
             seriesYear,
@@ -1019,13 +994,76 @@ export function IdentifyDialog({
           const expectedSeasonFolder = season !== undefined ? mainResult.seasonFolder : undefined;
           const newFileName = fileRenameMap.get(m.file.path)?.split("/").pop() || m.newPath.split("/").pop() || "";
 
-          // Handle CREATE main folder - ALWAYS create if checked, regardless of existing structure
+          // === FILE-CENTRIC FOLDER LOGIC ===
+          // Use relativePath (relative to user's selection) for determining folder positions
+          const relativeFilePath = m.file.relativePath.replace(/\\/g, "/");
+          const relPathParts = relativeFilePath.split("/").filter(p => p.length > 0);
+          relPathParts.pop(); // Remove filename
+          // relPathParts now contains folder hierarchy relative to user's selection
+
+          // Also get full path parts for building the actual rename paths
+          const fullFilePath = m.file.path.replace(/\\/g, "/");
+          const fullPathParts = fullFilePath.split("/").filter(p => p.length > 0);
+          fullPathParts.pop(); // Remove filename
+
+          console.log("[FOLDER-LOGIC] ========================================");
+          console.log("[FOLDER-LOGIC] File:", m.file.path);
+          console.log("[FOLDER-LOGIC] Relative path:", m.file.relativePath);
+          console.log("[FOLDER-LOGIC] Relative path parts:", relPathParts);
+          console.log("[FOLDER-LOGIC] Full path parts:", fullPathParts);
+          console.log("[FOLDER-LOGIC] Expected series folder:", expectedSeriesFolder);
+          console.log("[FOLDER-LOGIC] Expected season folder:", expectedSeasonFolder);
+          console.log("[FOLDER-LOGIC] Checkboxes - createMain:", createMainFolder, "renameMain:", renameMainFolder, "createSeason:", createSeasonFolders, "renameSeason:", renameSeasonFolders);
+
+          // Indexes from the FILE's perspective (counting backwards from file)
+          // Index 0 from end = immediate parent (where file is) = Season folder candidate
+          // Index 1 from end = grandparent = Main folder candidate
+          const seasonFolderFullIndex = fullPathParts.length - 1;
+          const mainFolderFullIndex = fullPathParts.length - 2;
+
+          console.log("[FOLDER-LOGIC] Season folder index:", seasonFolderFullIndex, "=", fullPathParts[seasonFolderFullIndex]);
+          console.log("[FOLDER-LOGIC] Main folder index:", mainFolderFullIndex, "=", fullPathParts[mainFolderFullIndex]);
+
+          // === SEASON FOLDER OPERATIONS ===
+          if (renameSeasonFolders && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
+            // RENAME: Rename immediate parent folder → Season XX
+            const seasonPath = fullPathParts.slice(0, seasonFolderFullIndex + 1).join("/");
+            const currentSeasonName = fullPathParts[seasonFolderFullIndex];
+            console.log("[FOLDER-LOGIC] RENAME SEASON: '%s' → '%s' (path: %s)",
+              currentSeasonName, expectedSeasonFolder, seasonPath);
+            if (currentSeasonName !== expectedSeasonFolder && !folderMap.has(seasonPath)) {
+              folderMap.set(seasonPath, expectedSeasonFolder);
+            }
+          }
+
+          if (createSeasonFolders && expectedSeasonFolder) {
+            // CREATE: Make new Season folder at file's location, move file inside
+            console.log("[FOLDER-LOGIC] CREATE SEASON: '%s' at file location", expectedSeasonFolder);
+            seasonCreates.push({
+              filePath: m.file.path,
+              newFileName,
+              seasonFolder: expectedSeasonFolder,
+            });
+          }
+
+          // === MAIN FOLDER OPERATIONS ===
+          if (renameMainFolder && mainFolderFullIndex >= 0) {
+            // RENAME: Rename grandparent folder → Series (Year)
+            const mainPath = fullPathParts.slice(0, mainFolderFullIndex + 1).join("/");
+            const currentMainName = fullPathParts[mainFolderFullIndex];
+            console.log("[FOLDER-LOGIC] RENAME MAIN: '%s' → '%s' (path: %s)",
+              currentMainName, expectedSeriesFolder, mainPath);
+            if (currentMainName !== expectedSeriesFolder && !folderMap.has(mainPath)) {
+              folderMap.set(mainPath, expectedSeriesFolder);
+            }
+          }
+
           if (createMainFolder) {
-            console.log("[FRONTEND] → Taking CREATE MAIN FOLDER branch");
-            // CREATE: Build new folder structure
+            // CREATE: Make new folder at file's location
             if (createSeasonFolders && expectedSeasonFolder) {
-              console.log("[FRONTEND] → Creating main + season folder");
-              // Create main + season folder
+              // Create Main + Season at file location
+              console.log("[FOLDER-LOGIC] CREATE MAIN+SEASON: '%s/%s' at file location",
+                expectedSeriesFolder, expectedSeasonFolder);
               mainFolderCreates.push({
                 filePath: m.file.path,
                 newFileName,
@@ -1033,8 +1071,8 @@ export function IdentifyDialog({
                 subfolderName: expectedSeasonFolder,
               });
             } else {
-              console.log("[FRONTEND] → Creating just main folder");
-              // Create just main folder
+              // Create Main only at file location
+              console.log("[FOLDER-LOGIC] CREATE MAIN: '%s' at file location", expectedSeriesFolder);
               mainFolderCreates.push({
                 filePath: m.file.path,
                 newFileName,
@@ -1042,127 +1080,8 @@ export function IdentifyDialog({
               });
             }
           }
-          // Handle CREATE season folder (without main folder) - ALWAYS create if checked
-          else if (createSeasonFolders && expectedSeasonFolder) {
-            console.log("[FRONTEND] → Taking CREATE SEASON FOLDER ONLY branch");
-            // CREATE season folder only
-            seasonCreates.push({
-              filePath: m.file.path,
-              newFileName,
-              seasonFolder: expectedSeasonFolder,
-            });
-          }
-          // Handle RENAME operations (for existing folder structures)
-          else if (hasFolderStructure && (renameMainFolder || renameSeasonFolders)) {
-            console.log("[FRONTEND] → Taking RENAME/EXISTING FOLDER branch");
-            // Handle season folder rename/create
-            if ((renameSeasonFolders || createSeasonFolders) && season !== undefined && expectedSeasonFolder) {
-              const result = applySeriesTemplate(template, {
-                seriesName,
-                seriesYear,
-                season,
-                episode: 1,
-                episodeTitle: "",
-                quality,
-                codec,
-                extraTags,
-                extension: "mkv",
-              });
-              const expectedSeasonFolder = result.seasonFolder;
 
-              if (fullDirParts.length > 0) {
-                // Check if there's a season folder that needs renaming
-                const seasonFolderName = fullDirParts[fullDirParts.length - 1];
-                const seasonMatch = seasonFolderName.match(/Season\s*(\d{1,2})/i);
-
-                if (seasonMatch && expectedSeasonFolder && expectedSeasonFolder !== seasonFolderName) {
-                  // The folder has a season pattern but doesn't match expected
-                  // Check if the folder's season matches the FILE's season
-                  const folderSeasonNum = parseInt(seasonMatch[1], 10);
-
-                  if (folderSeasonNum === season) {
-                    // Folder season matches file season, just needs renaming (e.g., "Season 1" -> "Season 01")
-                    const seasonFolderPath = fullDirParts.join("/");
-                    if (!folderMap.has(seasonFolderPath)) {
-                      folderMap.set(seasonFolderPath, expectedSeasonFolder);
-                    }
-                  } else {
-                    // File is in WRONG season folder - need to create correct folder and move file
-                    const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
-                    seasonCreates.push({
-                      filePath: m.file.path,
-                      newFileName,
-                      seasonFolder: expectedSeasonFolder,
-                    });
-                  }
-                } else if (!seasonMatch && expectedSeasonFolder) {
-                  // No season folder exists - need to create one and move file into it
-                  const newFileName = fileRenameMap.get(m.file.path) || m.file.name;
-                  seasonCreates.push({
-                    filePath: m.file.path,
-                    newFileName,
-                    seasonFolder: expectedSeasonFolder,
-                  });
-                }
-              }
-            }
-
-            // Handle main folder rename
-            if (renameMainFolder && fullDirParts.length > 0) {
-              // Get the series folder template name
-              const result = applySeriesTemplate(template, {
-                seriesName,
-                seriesYear,
-                season: 1,
-                episode: 1,
-                episodeTitle: "",
-                quality,
-                codec,
-                extraTags,
-                extension: "mkv",
-              });
-              const expectedSeriesFolder = result.seriesFolder;
-
-              // Determine the main folder from relativePath
-              // relativePath is relative to what the user selected/navigated to
-              // So the "main folder" (the folder user selected) is NOT in relativePath
-              const relativePathParts = m.file.relativePath.replace(/\\/g, "/").split("/").filter(p => p.length > 0);
-              relativePathParts.pop(); // Remove filename
-
-              console.log("[FRONTEND] RENAME MAIN FOLDER:");
-              console.log("[FRONTEND] - relativePathParts:", relativePathParts);
-              console.log("[FRONTEND] - fullDirParts:", fullDirParts);
-              console.log("[FRONTEND] - expectedSeriesFolder:", expectedSeriesFolder);
-
-              // The main folder is the folder the user selected, which is:
-              // fullDirParts minus the relativePathParts at the end
-              // Example:
-              //   fullDirParts = ["media", "anime Serie", "Season 01"]
-              //   relativePathParts = ["Season 01"]  (relative to selected folder)
-              //   mainFolder = "anime Serie" at index (3 - 1 - 1) = 1
-              const mainFolderIndex = fullDirParts.length - relativePathParts.length - 1;
-
-              console.log("[FRONTEND] - mainFolderIndex:", mainFolderIndex);
-
-              if (mainFolderIndex >= 0 && mainFolderIndex < fullDirParts.length) {
-                const mainFolderName = fullDirParts[mainFolderIndex];
-                const mainFolderPath = fullDirParts.slice(0, mainFolderIndex + 1).join("/");
-
-                console.log("[FRONTEND] - mainFolderName:", mainFolderName);
-                console.log("[FRONTEND] - mainFolderPath:", mainFolderPath);
-
-                if (mainFolderName && mainFolderName !== expectedSeriesFolder) {
-                  // The main folder needs to be renamed
-                  if (!folderMap.has(mainFolderPath)) {
-                    folderMap.set(mainFolderPath, expectedSeriesFolder);
-                    console.log("[FRONTEND] - Added to folderMap:", mainFolderPath, "->", expectedSeriesFolder);
-                  }
-                }
-              } else {
-                console.log("[FRONTEND] - Could not determine main folder (index out of range)");
-              }
-            }
-          }
+          console.log("[FOLDER-LOGIC] ========================================");
         }
 
         // Convert to array, sorted by depth (deepest first to avoid conflicts)
