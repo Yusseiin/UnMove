@@ -22,6 +22,13 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-02-07",
+    changes: [
+      { type: "fixed", description: "Fixed some styling issue" },
+    ],
+  },
+  {
+    version: "0.0.26",
     date: "2026-02-02",
     changes: [
       { type: "fixed", description: "Fixed Folder creation" },

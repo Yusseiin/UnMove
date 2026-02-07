@@ -13,7 +13,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { File, AlertCircle, AlertTriangle, Image as ImageIcon, Pencil, Check, X, ChevronDown, ChevronRight, Search, Loader2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -192,15 +191,6 @@ export function IdentifyDialog({
 
   // Collapsed seasons state
   const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(new Set());
-
-  // Expanded filename tooltip (for mobile click)
-  const [expandedFileName, setExpandedFileName] = useState<number | null>(null);
-
-  // Expanded destination path (for mobile click)
-  const [expandedDestPath, setExpandedDestPath] = useState<number | null>(null);
-
-  // Expanded movie path (for mobile click)
-  const [expandedMoviePath, setExpandedMoviePath] = useState(false);
 
   // Selected base folder for series/movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
@@ -1245,7 +1235,7 @@ export function IdentifyDialog({
   // Check if we have files to show (for series with episodes loaded)
   const hasFilesToShow = fileMappings.length > 0 && selectedResult?.type === "series" && episodes.length > 0;
   // Always use wider dialog when showing file list, and taller on desktop
-  const dialogWidth = hasFilesToShow && !isMobile ? "sm:max-w-5xl" : "sm:max-w-2xl";
+  const dialogWidth = hasFilesToShow ? "sm:max-w-5xl" : "sm:max-w-2xl";
   const dialogHeight = hasFilesToShow && !isMobile ? "sm:h-[85dvh]" : "";
 
   return (
@@ -1279,7 +1269,7 @@ export function IdentifyDialog({
             </div>
             <Progress value={(progress.current / progress.total) * 100} className="h-1.5" />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span className="truncate max-w-[50%]">{progress.currentFile}</span>
+              <span className="break-all">{progress.currentFile}</span>
               {progress.bytesPerSecond !== undefined && progress.bytesPerSecond > 0 && (
                 <span className="shrink-0">{formatBytes(progress.bytesPerSecond)}/s</span>
               )}
@@ -1487,7 +1477,7 @@ export function IdentifyDialog({
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium text-sm truncate">
+                            <p className="font-medium text-sm break-all">
                               {result.name_translated || result.name}
                               {result.year && (
                                 <span className="text-muted-foreground ml-1">
@@ -1496,7 +1486,7 @@ export function IdentifyDialog({
                               )}
                             </p>
                             {result.name_translated && result.name_translated !== result.name && (
-                              <p className="text-xs text-muted-foreground truncate">
+                              <p className="text-xs text-muted-foreground break-all">
                                 {result.name}
                               </p>
                             )}
@@ -1596,12 +1586,13 @@ export function IdentifyDialog({
 
           {/* Rename options - FFprobe checkbox for all, folder options for series */}
           {operation === "rename" && scannedFiles.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2">
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center gap-x-4 gap-y-2 py-2">
+              <div className="flex items-start gap-2">
                 <Checkbox
                   id="use-ffprobe"
                   checked={useFFprobe}
                   onCheckedChange={(checked) => setUseFFprobe(checked === true)}
+                  className="shrink-0 mt-0.5"
                 />
                 <label
                   htmlFor="use-ffprobe"
@@ -1612,11 +1603,12 @@ export function IdentifyDialog({
               </div>
               {selectedResult?.type === "series" && (
                 <>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     <Checkbox
                       id="create-main-folder"
                       checked={createMainFolder}
                       onCheckedChange={(checked) => setCreateMainFolder(checked === true)}
+                      className="shrink-0 mt-0.5"
                     />
                     <label
                       htmlFor="create-main-folder"
@@ -1625,11 +1617,12 @@ export function IdentifyDialog({
                       {t.identify.createMainFolder}
                     </label>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     <Checkbox
                       id="rename-main-folder"
                       checked={renameMainFolder}
                       onCheckedChange={(checked) => setRenameMainFolder(checked === true)}
+                      className="shrink-0 mt-0.5"
                     />
                     <label
                       htmlFor="rename-main-folder"
@@ -1638,11 +1631,12 @@ export function IdentifyDialog({
                       {t.identify.renameMainFolder}
                     </label>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     <Checkbox
                       id="create-season-folders"
                       checked={createSeasonFolders}
                       onCheckedChange={(checked) => setCreateSeasonFolders(checked === true)}
+                      className="shrink-0 mt-0.5"
                     />
                     <label
                       htmlFor="create-season-folders"
@@ -1651,11 +1645,12 @@ export function IdentifyDialog({
                       {t.identify.createSeasonFolders}
                     </label>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     <Checkbox
                       id="rename-season-folders"
                       checked={renameSeasonFolders}
                       onCheckedChange={(checked) => setRenameSeasonFolders(checked === true)}
+                      className="shrink-0 mt-0.5"
                     />
                     <label
                       htmlFor="rename-season-folders"
@@ -1681,8 +1676,7 @@ export function IdentifyDialog({
                   <span className="text-amber-600 dark:text-amber-400 font-normal"> · {errorMappings.length} {t.identify.needAttention}</span>
                 )}
               </label>
-              <ScrollArea className="h-112 sm:flex-1 sm:min-h-0 border rounded-md">
-                <div>
+              <div className="h-112 sm:flex-1 sm:min-h-0 border rounded-md overflow-y-auto">
                   {sortedSeasons.map((season) => {
                     const seasonMappings = mappingsBySeason[season];
                     const isCollapsed = collapsedSeasons.has(season);
@@ -1764,55 +1758,19 @@ export function IdentifyDialog({
                                     )}
 
                                     {/* File details */}
-                                    <div className="flex-1 min-w-0 overflow-hidden">
-                                      {isMobile ? (
-                                        // Mobile: click to expand/collapse full filename
-                                        <button
-                                          type="button"
-                                          onClick={() => setExpandedFileName(expandedFileName === fileIndex ? null : fileIndex)}
-                                          className={`text-sm font-medium text-left w-full ${isSkipped ? "line-through text-muted-foreground" : ""} ${expandedFileName === fileIndex ? "whitespace-normal break-all" : "truncate max-w-37.5"}`}
-                                        >
-                                          {m.file.name}
-                                        </button>
-                                      ) : (
-                                        // Desktop: hover tooltip
-                                        <Tooltip delayDuration={0}>
-                                          <TooltipTrigger asChild>
-                                            <p className={`text-sm font-medium truncate cursor-default ${isSkipped ? "line-through text-muted-foreground" : ""}`}>
-                                              {m.file.name}
-                                            </p>
-                                          </TooltipTrigger>
-                                          <TooltipContent side="top" className="max-w-75 break-all">
-                                            {m.file.name}
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-sm font-medium break-all ${isSkipped ? "line-through text-muted-foreground" : ""}`}>
+                                        {m.file.name}
+                                      </p>
                                       {isSkipped ? (
                                         <p className="text-xs text-muted-foreground">{t.common.skipped}</p>
                                       ) : hasError ? (
-                                        <p className="text-xs text-amber-600 dark:text-amber-400 truncate">{m.error}</p>
+                                        <p className="text-xs text-amber-600 dark:text-amber-400 break-all">{m.error}</p>
                                       ) : isValid && m.episode ? (
                                         <>
-                                          {isMobile ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => setExpandedDestPath(expandedDestPath === fileIndex ? null : fileIndex)}
-                                              className={`text-xs text-green-600 dark:text-green-400 text-left w-full ${expandedDestPath === fileIndex ? "whitespace-normal break-all" : "truncate"}`}
-                                            >
-                                              → {m.newPath.split("/").pop()}
-                                            </button>
-                                          ) : (
-                                            <Tooltip delayDuration={0}>
-                                              <TooltipTrigger asChild>
-                                                <p className="text-xs text-green-600 dark:text-green-400 truncate cursor-default">
-                                                  → {m.newPath.split("/").pop()}
-                                                </p>
-                                              </TooltipTrigger>
-                                              <TooltipContent side="top" className="max-w-100 break-all">
-                                                {m.newPath}
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          )}
+                                          <p className="text-xs text-green-600 dark:text-green-400 break-all">
+                                            → {m.newPath.split("/").pop()}
+                                          </p>
                                           {existsAtDest && (
                                             <div className="flex items-center gap-2 mt-1">
                                               <span className="text-xs text-amber-600 dark:text-amber-400">
@@ -1949,8 +1907,7 @@ export function IdentifyDialog({
                       </div>
                     );
                   })}
-                </div>
-              </ScrollArea>
+              </div>
             </div>
           )}
 
@@ -2019,28 +1976,10 @@ export function IdentifyDialog({
             <div className="space-y-2">
               <label className="text-sm font-medium">{t.identify.renamedFile}</label>
               <div className="border rounded-md p-3">
-                {isMobile ? (
-                  <button
-                    type="button"
-                    onClick={() => setExpandedMoviePath(!expandedMoviePath)}
-                    className={`flex items-start gap-2 text-sm font-mono text-left w-full ${expandedMoviePath ? "" : ""}`}
-                  >
-                    <File className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <span className={expandedMoviePath ? "whitespace-normal break-all" : "truncate"}>{validMappings[0]?.newPath}</span>
-                  </button>
-                ) : (
-                  <Tooltip delayDuration={0}>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-2 text-sm font-mono cursor-default">
-                        <File className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="truncate">{validMappings[0]?.newPath}</span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-100 break-all">
-                      {validMappings[0]?.newPath}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
+                <div className="flex items-start gap-2 text-sm font-mono">
+                  <File className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <span className="break-all">{validMappings[0]?.newPath}</span>
+                </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   {t.identify.willBePlacedIn}
                 </p>
@@ -2080,7 +2019,7 @@ export function IdentifyDialog({
                 </span>
               </div>
               <Progress value={(progress.current / progress.total) * 100} className="h-2" />
-              <p className="text-xs text-muted-foreground truncate">
+              <p className="text-xs text-muted-foreground break-all">
                 {progress.currentFile}
               </p>
               {/* Byte-level progress for current file */}

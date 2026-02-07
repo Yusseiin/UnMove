@@ -744,160 +744,64 @@ function IdentifyMultiSeriesContent() {
           for (const fm of group.files) {
             if (!fm.selectedEpisodeData || fm.error) continue;
 
-            const fullFilePath = fm.file.path.replace(/\\/g, "/");
-            const fullDirParts = fullFilePath.split("/").filter(p => p.length > 0);
-            fullDirParts.pop(); // Remove filename
-
             const season = fm.selectedEpisodeData.seasonNumber;
 
-            // Check if the user selected individual files (not a folder)
-            // When a file is selected directly, relativePath equals the filename (no folder components)
-            const userSelectedFile = fm.file.relativePath === fm.file.name;
+            // Get expected folder names from template
+            const mainResult = applySeriesTemplate(template, {
+              seriesName,
+              seriesYear,
+              season: season || 1,
+              episode: 1,
+              episodeTitle: "",
+              quality,
+              codec,
+              extraTags,
+              extension: "mkv",
+            });
+            const expectedSeriesFolder = mainResult.seriesFolder;
+            const expectedSeasonFolder = season !== undefined ? mainResult.seasonFolder : undefined;
 
-            // Handle combined main folder + season folder creation for directly selected files
-            if (userSelectedFile && group.renameMainFolder) {
-              // User selected a file directly - need to create folder structure
-              const mainResult = applySeriesTemplate(template, {
-                seriesName,
-                seriesYear,
-                season: 1,
-                episode: 1,
-                episodeTitle: "",
-                quality,
-                codec,
-                extraTags,
-                extension: "mkv",
-              });
-              const expectedSeriesFolder = mainResult.seriesFolder;
+            // === FILE-CENTRIC FOLDER LOGIC ===
+            const fullFilePath = fm.file.path.replace(/\\/g, "/");
+            const fullPathParts = fullFilePath.split("/").filter(p => p.length > 0);
+            fullPathParts.pop(); // Remove filename
 
-              const newFileName = fileRenameMap.get(fm.file.path) || fm.file.name;
-              if (newFileName) {
-                if (group.renameSeasonFolders && season !== undefined) {
-                  // Both main folder and season folder - create combined path
-                  const seasonResult = applySeriesTemplate(template, {
-                    seriesName,
-                    seriesYear,
-                    season,
-                    episode: 1,
-                    episodeTitle: "",
-                    quality,
-                    codec,
-                    extraTags,
-                    extension: "mkv",
-                  });
-                  const expectedSeasonFolder = seasonResult.seasonFolder;
-                  // Create path like "Percy Jackson (2023)/Season 01"
-                  const combinedFolder = expectedSeasonFolder
-                    ? `${expectedSeriesFolder}/${expectedSeasonFolder}`
-                    : expectedSeriesFolder;
-                  seasonFolderCreates.push({
-                    filePath: fm.file.path,
-                    newFileName,
-                    seasonFolder: combinedFolder,
-                  });
-                } else {
-                  // Only main folder - create just the main folder
-                  seasonFolderCreates.push({
-                    filePath: fm.file.path,
-                    newFileName,
-                    seasonFolder: expectedSeriesFolder,
-                  });
-                }
-              }
-            } else if (userSelectedFile && group.renameSeasonFolders && season !== undefined) {
-              // User selected file directly, only season folders enabled (no main folder)
-              const result = applySeriesTemplate(template, {
-                seriesName,
-                seriesYear,
-                season,
-                episode: 1,
-                episodeTitle: "",
-                quality,
-                codec,
-                extraTags,
-                extension: "mkv",
-              });
-              const expectedSeasonFolder = result.seasonFolder;
-              if (expectedSeasonFolder) {
-                const newFileName = fileRenameMap.get(fm.file.path) || fm.file.name;
-                seasonFolderCreates.push({
-                  filePath: fm.file.path,
-                  newFileName,
-                  seasonFolder: expectedSeasonFolder,
-                });
-              }
-            } else {
-              // User selected a folder - handle folder renames
+            console.log("[FOLDER-LOGIC-MULTI] ========================================");
+            console.log("[FOLDER-LOGIC-MULTI] File:", fm.file.path);
+            console.log("[FOLDER-LOGIC-MULTI] Full path parts:", fullPathParts);
+            console.log("[FOLDER-LOGIC-MULTI] Expected series folder:", expectedSeriesFolder);
+            console.log("[FOLDER-LOGIC-MULTI] Expected season folder:", expectedSeasonFolder);
 
-              // Handle season folder rename/create
-              if (group.renameSeasonFolders && season !== undefined) {
-                const result = applySeriesTemplate(template, {
-                  seriesName,
-                  seriesYear,
-                  season,
-                  episode: 1,
-                  episodeTitle: "",
-                  quality,
-                  codec,
-                  extraTags,
-                  extension: "mkv",
-                });
-                const expectedSeasonFolder = result.seasonFolder;
+            // Indexes from the FILE's perspective (counting backwards from file)
+            const seasonFolderFullIndex = fullPathParts.length - 1;
+            const mainFolderFullIndex = fullPathParts.length - 2;
 
-                if (fullDirParts.length > 0) {
-                  const seasonFolderName = fullDirParts[fullDirParts.length - 1];
-                  const seasonMatch = seasonFolderName.match(/Season\s*(\d{1,2})/i);
+            console.log("[FOLDER-LOGIC-MULTI] Season folder index:", seasonFolderFullIndex, "=", fullPathParts[seasonFolderFullIndex]);
+            console.log("[FOLDER-LOGIC-MULTI] Main folder index:", mainFolderFullIndex, "=", fullPathParts[mainFolderFullIndex]);
 
-                  if (seasonMatch && expectedSeasonFolder && expectedSeasonFolder !== seasonFolderName) {
-                    const folderSeasonNum = parseInt(seasonMatch[1], 10);
-                    if (folderSeasonNum === season) {
-                      const seasonFolderPath = fullDirParts.join("/");
-                      if (!folderMap.has(seasonFolderPath)) {
-                        folderMap.set(seasonFolderPath, expectedSeasonFolder);
-                      }
-                    } else {
-                      const newFileName = fileRenameMap.get(fm.file.path) || fm.file.name;
-                      seasonFolderCreates.push({
-                        filePath: fm.file.path,
-                        newFileName,
-                        seasonFolder: expectedSeasonFolder,
-                      });
-                    }
-                  } else if (!seasonMatch && expectedSeasonFolder) {
-                    const newFileName = fileRenameMap.get(fm.file.path) || fm.file.name;
-                    seasonFolderCreates.push({
-                      filePath: fm.file.path,
-                      newFileName,
-                      seasonFolder: expectedSeasonFolder,
-                    });
-                  }
-                }
-              }
-
-              // Handle main folder rename
-              if (group.renameMainFolder && fullDirParts.length > 0) {
-                const result = applySeriesTemplate(template, {
-                  seriesName,
-                  seriesYear,
-                  season: 1,
-                  episode: 1,
-                  episodeTitle: "",
-                  quality,
-                  codec,
-                  extraTags,
-                  extension: "mkv",
-                });
-                const expectedSeriesFolder = result.seriesFolder;
-
-                // User selected a folder - rename the main folder
-                const mainFolderName = fullDirParts[0];
-                if (mainFolderName && mainFolderName !== expectedSeriesFolder) {
-                  if (!folderMap.has(mainFolderName)) {
-                    folderMap.set(mainFolderName, expectedSeriesFolder);
-                  }
-                }
+            // === SEASON FOLDER ===
+            if (group.renameSeasonFolders && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
+              const seasonPath = fullPathParts.slice(0, seasonFolderFullIndex + 1).join("/");
+              const currentSeasonName = fullPathParts[seasonFolderFullIndex];
+              console.log("[FOLDER-LOGIC-MULTI] RENAME SEASON: '%s' → '%s' (path: %s)",
+                currentSeasonName, expectedSeasonFolder, seasonPath);
+              if (currentSeasonName !== expectedSeasonFolder && !folderMap.has(seasonPath)) {
+                folderMap.set(seasonPath, expectedSeasonFolder);
               }
             }
+
+            // === MAIN FOLDER ===
+            if (group.renameMainFolder && mainFolderFullIndex >= 0) {
+              const mainPath = fullPathParts.slice(0, mainFolderFullIndex + 1).join("/");
+              const currentMainName = fullPathParts[mainFolderFullIndex];
+              console.log("[FOLDER-LOGIC-MULTI] RENAME MAIN: '%s' → '%s' (path: %s)",
+                currentMainName, expectedSeriesFolder, mainPath);
+              if (currentMainName !== expectedSeriesFolder && !folderMap.has(mainPath)) {
+                folderMap.set(mainPath, expectedSeriesFolder);
+              }
+            }
+
+            console.log("[FOLDER-LOGIC-MULTI] ========================================");
           }
 
           // Add to folder renames (sorted by depth, deepest first)
@@ -1118,12 +1022,12 @@ function IdentifyMultiSeriesContent() {
               <ArrowLeft className="h-4 w-4 lg:h-5 lg:w-5" />
             </Button>
             <div className="flex-1 min-w-0">
-              <h1 className="text-sm lg:text-xl font-semibold truncate">
+              <h1 className="text-sm lg:text-xl font-semibold break-all">
                 {filePaths.length === 1
                   ? t.multiSeries.identifyWithProvider.replace("{provider}", "TVDB")
                   : t.multiSeries.title}
               </h1>
-              <p className="text-xs lg:text-sm text-muted-foreground truncate">
+              <p className="text-xs lg:text-sm text-muted-foreground break-all">
                 {isScanning
                   ? t.multiSeries.scanning
                   : viewMode === "summary"
@@ -1250,8 +1154,8 @@ function IdentifyMultiSeriesContent() {
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm lg:text-lg truncate">{currentGroup.displayName}</p>
-                        <p className="text-xs lg:text-sm text-muted-foreground truncate">
+                        <p className="font-semibold text-sm lg:text-lg break-all">{currentGroup.displayName}</p>
+                        <p className="text-xs lg:text-sm text-muted-foreground break-all">
                           {currentGroup.files.length} {currentGroup.files.length === 1 ? "file" : "files"}
                           {currentGroup.selectedResult && (
                             <span className="ml-1 lg:ml-2 text-primary font-medium">
@@ -1507,7 +1411,7 @@ function IdentifyMultiSeriesContent() {
                                         )}
                                       </div>
                                       <div className="min-w-0 flex-1">
-                                        <p className="font-medium text-xs lg:text-sm truncate">
+                                        <p className="font-medium text-xs lg:text-sm break-all">
                                           {result.name_translated || result.name}
                                           {result.year && (
                                             <span className="text-muted-foreground ml-1">({result.year})</span>
@@ -1546,7 +1450,8 @@ function IdentifyMultiSeriesContent() {
                                     ({currentGroup.files.filter(f => f.newPath && !f.error).length}/{currentGroup.files.length})
                                   </span>
                                 </label>
-                                <div className="border rounded-lg max-h-60 lg:max-h-100 overflow-y-auto">
+                                <div className="border rounded-lg max-h-60 lg:max-h-100 overflow-y-auto overflow-x-auto">
+                                  <div className="min-w-120">
                                   {sortedSeasons.map((season) => {
                                     const seasonFiles = bySeason.get(season) || [];
                                     const collapseKey = `${currentSlide}-${season}`;
@@ -1605,23 +1510,13 @@ function IdentifyMultiSeriesContent() {
                                                         <Check className="h-2.5 w-2.5 lg:h-3 lg:w-3 text-green-500" />
                                                       </div>
                                                       <div className="flex-1 min-w-0">
-                                                        <Tooltip delayDuration={0}>
-                                                          <TooltipTrigger asChild>
-                                                            <p className="text-xs lg:text-sm truncate cursor-default">
-                                                              <span className="text-muted-foreground">{fm.file.name}</span>
-                                                              <span className="mx-1 lg:mx-1.5 text-green-500">→</span>
-                                                              <span className="font-medium text-green-600 dark:text-green-400">
-                                                                E{formatSeason(fm.selectedEpisode!)}
-                                                              </span>
-                                                            </p>
-                                                          </TooltipTrigger>
-                                                          <TooltipContent side="top" className="max-w-md break-all">
-                                                            <div className="space-y-1">
-                                                              <p><span className="font-medium">From:</span> {fm.file.name}</p>
-                                                              <p><span className="font-medium">To:</span> {fm.newPath}</p>
-                                                            </div>
-                                                          </TooltipContent>
-                                                        </Tooltip>
+                                                        <p className="text-xs lg:text-sm break-all">
+                                                          <span className="text-muted-foreground">{fm.file.name}</span>
+                                                          <span className="mx-1 lg:mx-1.5 text-green-500">→</span>
+                                                          <span className="font-medium text-green-600 dark:text-green-400">
+                                                            E{formatSeason(fm.selectedEpisode!)}
+                                                          </span>
+                                                        </p>
                                                       </div>
                                                       <Button
                                                         variant="ghost"
@@ -1644,14 +1539,7 @@ function IdentifyMultiSeriesContent() {
                                                         ) : (
                                                           <div className="w-4 h-4 lg:w-5 lg:h-5 rounded-full border-2 border-muted-foreground/30 shrink-0" />
                                                         )}
-                                                        <Tooltip delayDuration={0}>
-                                                          <TooltipTrigger asChild>
-                                                            <p className="text-xs lg:text-sm truncate cursor-default flex-1 min-w-0">{fm.file.name}</p>
-                                                          </TooltipTrigger>
-                                                          <TooltipContent side="top" className="max-w-md break-all">
-                                                            {fm.file.name}
-                                                          </TooltipContent>
-                                                        </Tooltip>
+                                                        <p className="text-xs lg:text-sm break-all flex-1 min-w-0">{fm.file.name}</p>
                                                         {isEditing && (
                                                           <Button
                                                             variant="ghost"
@@ -1721,6 +1609,7 @@ function IdentifyMultiSeriesContent() {
                                       </div>
                                     );
                                   })}
+                                  </div>
                                 </div>
                               </div>
                             );

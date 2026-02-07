@@ -58,7 +58,7 @@ export function RenameChoiceDialog({
           {itemCount === 1 && (
             <Button
               variant="outline"
-              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1 whitespace-normal text-left w-full"
               onClick={onNormalRename}
             >
               <span className="font-semibold text-sm sm:text-base">{t.common.rename}</span>
@@ -70,7 +70,7 @@ export function RenameChoiceDialog({
 
           <Button
             variant="outline"
-            className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+            className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1 whitespace-normal text-left w-full"
             onClick={onIdentifyRename}
           >
             <span className="font-semibold text-sm sm:text-base">
@@ -84,7 +84,7 @@ export function RenameChoiceDialog({
           {onIdentifyMovieRename && itemCount === 1 && (
             <Button
               variant="outline"
-              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1 whitespace-normal text-left w-full"
               onClick={onIdentifyMovieRename}
             >
               <span className="font-semibold text-sm sm:text-base">
@@ -99,7 +99,7 @@ export function RenameChoiceDialog({
           {onBatchIdentifyRename && itemCount > 1 && (
             <Button
               variant="outline"
-              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1 whitespace-normal text-left w-full"
               onClick={onBatchIdentifyRename}
             >
               <span className="font-semibold text-sm sm:text-base">
@@ -114,7 +114,7 @@ export function RenameChoiceDialog({
           {onMultiSeriesRename && itemCount > 1 && (
             <Button
               variant="outline"
-              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1"
+              className="h-auto py-3 sm:py-4 flex flex-col items-start gap-1 whitespace-normal text-left w-full"
               onClick={onMultiSeriesRename}
             >
               <span className="font-semibold text-sm sm:text-base">
