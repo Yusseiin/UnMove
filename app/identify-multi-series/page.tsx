@@ -762,25 +762,34 @@ function IdentifyMultiSeriesContent() {
             const expectedSeasonFolder = season !== undefined ? mainResult.seasonFolder : undefined;
 
             // === FILE-CENTRIC FOLDER LOGIC ===
+            const relativeFilePath = fm.file.relativePath.replace(/\\/g, "/");
+            const relPathParts = relativeFilePath.split("/").filter(p => p.length > 0);
+            relPathParts.pop(); // Remove filename
+
             const fullFilePath = fm.file.path.replace(/\\/g, "/");
             const fullPathParts = fullFilePath.split("/").filter(p => p.length > 0);
             fullPathParts.pop(); // Remove filename
 
             console.log("[FOLDER-LOGIC-MULTI] ========================================");
             console.log("[FOLDER-LOGIC-MULTI] File:", fm.file.path);
+            console.log("[FOLDER-LOGIC-MULTI] Relative path:", fm.file.relativePath);
+            console.log("[FOLDER-LOGIC-MULTI] Relative depth:", relPathParts.length);
             console.log("[FOLDER-LOGIC-MULTI] Full path parts:", fullPathParts);
             console.log("[FOLDER-LOGIC-MULTI] Expected series folder:", expectedSeriesFolder);
             console.log("[FOLDER-LOGIC-MULTI] Expected season folder:", expectedSeasonFolder);
 
-            // Indexes from the FILE's perspective (counting backwards from file)
+            // Indexes using relativePath depth to determine context
             const seasonFolderFullIndex = fullPathParts.length - 1;
-            const mainFolderFullIndex = fullPathParts.length - 2;
+            const mainFolderFullIndex = relPathParts.length >= 1
+              ? fullPathParts.length - 2  // Grandparent (parent of season folder)
+              : fullPathParts.length - 1; // Flat: immediate parent IS the main folder
 
             console.log("[FOLDER-LOGIC-MULTI] Season folder index:", seasonFolderFullIndex, "=", fullPathParts[seasonFolderFullIndex]);
             console.log("[FOLDER-LOGIC-MULTI] Main folder index:", mainFolderFullIndex, "=", fullPathParts[mainFolderFullIndex]);
 
             // === SEASON FOLDER ===
-            if (group.renameSeasonFolders && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
+            // Only rename season folder if there's a subfolder structure (relPathParts >= 1)
+            if (group.renameSeasonFolders && relPathParts.length >= 1 && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
               const seasonPath = fullPathParts.slice(0, seasonFolderFullIndex + 1).join("/");
               const currentSeasonName = fullPathParts[seasonFolderFullIndex];
               console.log("[FOLDER-LOGIC-MULTI] RENAME SEASON: '%s' → '%s' (path: %s)",

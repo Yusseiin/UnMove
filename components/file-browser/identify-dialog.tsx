@@ -1005,17 +1005,25 @@ export function IdentifyDialog({
           console.log("[FOLDER-LOGIC] Expected season folder:", expectedSeasonFolder);
           console.log("[FOLDER-LOGIC] Checkboxes - createMain:", createMainFolder, "renameMain:", renameMainFolder, "createSeason:", createSeasonFolders, "renameSeason:", renameSeasonFolders);
 
-          // Indexes from the FILE's perspective (counting backwards from file)
-          // Index 0 from end = immediate parent (where file is) = Season folder candidate
-          // Index 1 from end = grandparent = Main folder candidate
-          const seasonFolderFullIndex = fullPathParts.length - 1;
-          const mainFolderFullIndex = fullPathParts.length - 2;
+          // Indexes from the FILE's perspective, using relativePath depth to determine context
+          // relPathParts.length tells us how many folder levels exist within the user's selection:
+          //   0 = files directly in selected folder (flat: Main/file.mkv)
+          //   1 = one subfolder level (Main/Season/file.mkv when user selected Main/)
+          //   2+ = deep structure
+          const seasonFolderFullIndex = fullPathParts.length - 1; // Always immediate parent
+          // Main folder: if files have subfolders (relPathParts >= 1), main = grandparent
+          // If flat (relPathParts == 0), the immediate parent IS the main folder
+          const mainFolderFullIndex = relPathParts.length >= 1
+            ? fullPathParts.length - 2  // Grandparent (parent of season folder)
+            : fullPathParts.length - 1; // Immediate parent IS the main folder
 
+          console.log("[FOLDER-LOGIC] Relative depth:", relPathParts.length);
           console.log("[FOLDER-LOGIC] Season folder index:", seasonFolderFullIndex, "=", fullPathParts[seasonFolderFullIndex]);
           console.log("[FOLDER-LOGIC] Main folder index:", mainFolderFullIndex, "=", fullPathParts[mainFolderFullIndex]);
 
           // === SEASON FOLDER OPERATIONS ===
-          if (renameSeasonFolders && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
+          // Only rename season folder if there's actually a subfolder structure (relPathParts >= 1)
+          if (renameSeasonFolders && relPathParts.length >= 1 && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
             // RENAME: Rename immediate parent folder → Season XX
             const seasonPath = fullPathParts.slice(0, seasonFolderFullIndex + 1).join("/");
             const currentSeasonName = fullPathParts[seasonFolderFullIndex];

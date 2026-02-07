@@ -615,8 +615,13 @@ export function applySeriesTemplate(
   const episodePadded = data.episode.toString().padStart(t.episodePadding, "0");
 
   // Sanitize inputs
-  const seriesName = sanitizeFileName(data.seriesName);
+  // Strip year from series name if it already ends with it (e.g. "The Studio (2025)" + year "2025")
+  let rawSeriesName = data.seriesName;
   const seriesYear = data.seriesYear || "";
+  if (seriesYear && rawSeriesName.endsWith(`(${seriesYear})`)) {
+    rawSeriesName = rawSeriesName.slice(0, -(seriesYear.length + 2)).trim();
+  }
+  const seriesName = sanitizeFileName(rawSeriesName);
   const episodeTitle = data.episodeTitle ? sanitizeFileName(data.episodeTitle) : "";
   const quality = data.quality || "";
   const codec = data.codec || "";

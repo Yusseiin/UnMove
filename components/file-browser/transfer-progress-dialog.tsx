@@ -241,7 +241,7 @@ export function TransferProgressDialog({
   // Desktop: Show dialog
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => !isComplete && e.preventDefault()}>
+      <DialogContent className="sm:max-w-lg overflow-hidden" onPointerDownOutside={(e) => !isComplete && e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>
             {operation === "copy" ? t.transferProgress.copyingFiles : t.transferProgress.movingFiles}
@@ -283,7 +283,7 @@ export function TransferProgressDialog({
               </div>
 
               {/* Current file */}
-              <p className="text-xs text-muted-foreground truncate">
+              <p className="text-xs text-muted-foreground break-all">
                 {progress.currentFile}
               </p>
 
