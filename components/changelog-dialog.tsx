@@ -24,7 +24,14 @@ const changelog: ChangelogEntry[] = [
     version: process.env.NEXT_PUBLIC_VERSION || "",
     date: "2026-02-07",
     changes: [
-      { type: "fixed", description: "Fixed some styling issue" },
+      { type: "fixed", description: "Bug fix" },
+    ],
+  },
+  {
+    version: "27",
+    date: "2026-02-07",
+    changes: [
+      { type: "fixed", description: "Fixed some style issue" },
     ],
   },
   {

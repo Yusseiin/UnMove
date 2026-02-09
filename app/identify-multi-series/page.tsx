@@ -101,9 +101,11 @@ interface SeriesGroup {
   episodes: TVDBEpisode[];
   isLoadingEpisodes: boolean;
   status: "pending" | "accepted" | "skipped";
-  // Folder rename options (for rename operation)
+  // Folder rename/create options (for rename operation)
   renameSeasonFolders: boolean;
+  createSeasonFolders: boolean;
   renameMainFolder: boolean;
+  createMainFolder: boolean;
 }
 
 function IdentifyMultiSeriesContent() {
@@ -363,7 +365,9 @@ function IdentifyMultiSeriesContent() {
             isLoadingEpisodes: false,
             status: "pending" as const,
             renameSeasonFolders: false,
+            createSeasonFolders: false,
             renameMainFolder: false,
+            createMainFolder: false,
           };
         });
 
@@ -711,6 +715,7 @@ function IdentifyMultiSeriesContent() {
   const handleConfirm = useCallback(async () => {
     const acceptedFiles: { sourcePath: string; destinationPath: string }[] = [];
     let folderRenames: { oldPath: string; newName: string }[] = [];
+    let folderCreates: { filePath: string; newFileName: string; folderName: string; subfolderName?: string }[] = [];
     let seasonFolderCreates: { filePath: string; newFileName: string; seasonFolder: string }[] = [];
 
     for (const group of seriesGroups) {
@@ -728,8 +733,8 @@ function IdentifyMultiSeriesContent() {
           }
         }
 
-        // Process folder renames for this group (only for rename operation)
-        if (operation === "rename" && group.selectedResult && (group.renameSeasonFolders || group.renameMainFolder)) {
+        // Process folder renames/creates for this group (only for rename operation)
+        if (operation === "rename" && group.selectedResult && (group.renameSeasonFolders || group.renameMainFolder || group.createSeasonFolders || group.createMainFolder)) {
           const seriesName = getDisplayName(group.selectedResult, language);
           const seriesYear = group.selectedResult.year || "";
           const template = getSeriesNamingTemplate();
@@ -787,7 +792,9 @@ function IdentifyMultiSeriesContent() {
             console.log("[FOLDER-LOGIC-MULTI] Season folder index:", seasonFolderFullIndex, "=", fullPathParts[seasonFolderFullIndex]);
             console.log("[FOLDER-LOGIC-MULTI] Main folder index:", mainFolderFullIndex, "=", fullPathParts[mainFolderFullIndex]);
 
-            // === SEASON FOLDER ===
+            const newFileName = fileRenameMap.get(fm.file.path)?.split("/").pop() || fm.newPath?.split("/").pop() || "";
+
+            // === SEASON FOLDER RENAME ===
             // Only rename season folder if there's a subfolder structure (relPathParts >= 1)
             if (group.renameSeasonFolders && relPathParts.length >= 1 && seasonFolderFullIndex >= 0 && expectedSeasonFolder) {
               const seasonPath = fullPathParts.slice(0, seasonFolderFullIndex + 1).join("/");
@@ -799,7 +806,17 @@ function IdentifyMultiSeriesContent() {
               }
             }
 
-            // === MAIN FOLDER ===
+            // === SEASON FOLDER CREATE ===
+            if (group.createSeasonFolders && expectedSeasonFolder) {
+              console.log("[FOLDER-LOGIC-MULTI] CREATE SEASON: '%s' at file location", expectedSeasonFolder);
+              seasonFolderCreates.push({
+                filePath: fm.file.path,
+                newFileName,
+                seasonFolder: expectedSeasonFolder,
+              });
+            }
+
+            // === MAIN FOLDER RENAME ===
             if (group.renameMainFolder && mainFolderFullIndex >= 0) {
               const mainPath = fullPathParts.slice(0, mainFolderFullIndex + 1).join("/");
               const currentMainName = fullPathParts[mainFolderFullIndex];
@@ -807,6 +824,27 @@ function IdentifyMultiSeriesContent() {
                 currentMainName, expectedSeriesFolder, mainPath);
               if (currentMainName !== expectedSeriesFolder && !folderMap.has(mainPath)) {
                 folderMap.set(mainPath, expectedSeriesFolder);
+              }
+            }
+
+            // === MAIN FOLDER CREATE ===
+            if (group.createMainFolder) {
+              if (group.createSeasonFolders && expectedSeasonFolder) {
+                console.log("[FOLDER-LOGIC-MULTI] CREATE MAIN+SEASON: '%s/%s' at file location",
+                  expectedSeriesFolder, expectedSeasonFolder);
+                folderCreates.push({
+                  filePath: fm.file.path,
+                  newFileName,
+                  folderName: expectedSeriesFolder,
+                  subfolderName: expectedSeasonFolder,
+                });
+              } else {
+                console.log("[FOLDER-LOGIC-MULTI] CREATE MAIN: '%s' at file location", expectedSeriesFolder);
+                folderCreates.push({
+                  filePath: fm.file.path,
+                  newFileName,
+                  folderName: expectedSeriesFolder,
+                });
               }
             }
 
@@ -844,6 +882,7 @@ function IdentifyMultiSeriesContent() {
           overwrite: true,
           pane,
           folderRenames: folderRenames.length > 0 ? folderRenames : undefined,
+          folderCreates: folderCreates.length > 0 ? folderCreates : undefined,
           seasonFolderCreates: seasonFolderCreates.length > 0 ? seasonFolderCreates : undefined,
         }),
       });
@@ -1200,27 +1239,27 @@ function IdentifyMultiSeriesContent() {
                                 {t.multiSeries.ffprobeQuality}
                               </label>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-start gap-2">
                               <Checkbox
-                                id={`rename-season-folders-${currentSlide}`}
-                                checked={currentGroup.renameSeasonFolders}
+                                id={`create-main-folder-${currentSlide}`}
+                                checked={currentGroup.createMainFolder}
                                 onCheckedChange={(checked) => {
                                   setSeriesGroups((prev) =>
                                     prev.map((g, i) =>
-                                      i === currentSlide ? { ...g, renameSeasonFolders: checked === true } : g
+                                      i === currentSlide ? { ...g, createMainFolder: checked === true } : g
                                     )
                                   );
                                 }}
-                                className="h-4 w-4"
+                                className="h-4 w-4 shrink-0 mt-0.5"
                               />
                               <label
-                                htmlFor={`rename-season-folders-${currentSlide}`}
+                                htmlFor={`create-main-folder-${currentSlide}`}
                                 className="text-xs lg:text-sm cursor-pointer select-none"
                               >
-                                {t.multiSeries.createSeasonFolders}
+                                {t.identify.createMainFolder}
                               </label>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-start gap-2">
                               <Checkbox
                                 id={`rename-main-folder-${currentSlide}`}
                                 checked={currentGroup.renameMainFolder}
@@ -1231,13 +1270,53 @@ function IdentifyMultiSeriesContent() {
                                     )
                                   );
                                 }}
-                                className="h-4 w-4"
+                                className="h-4 w-4 shrink-0 mt-0.5"
                               />
                               <label
                                 htmlFor={`rename-main-folder-${currentSlide}`}
                                 className="text-xs lg:text-sm cursor-pointer select-none"
                               >
-                                {t.multiSeries.createMainFolder}
+                                {t.identify.renameMainFolder}
+                              </label>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Checkbox
+                                id={`create-season-folders-${currentSlide}`}
+                                checked={currentGroup.createSeasonFolders}
+                                onCheckedChange={(checked) => {
+                                  setSeriesGroups((prev) =>
+                                    prev.map((g, i) =>
+                                      i === currentSlide ? { ...g, createSeasonFolders: checked === true } : g
+                                    )
+                                  );
+                                }}
+                                className="h-4 w-4 shrink-0 mt-0.5"
+                              />
+                              <label
+                                htmlFor={`create-season-folders-${currentSlide}`}
+                                className="text-xs lg:text-sm cursor-pointer select-none"
+                              >
+                                {t.identify.createSeasonFolders}
+                              </label>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <Checkbox
+                                id={`rename-season-folders-${currentSlide}`}
+                                checked={currentGroup.renameSeasonFolders}
+                                onCheckedChange={(checked) => {
+                                  setSeriesGroups((prev) =>
+                                    prev.map((g, i) =>
+                                      i === currentSlide ? { ...g, renameSeasonFolders: checked === true } : g
+                                    )
+                                  );
+                                }}
+                                className="h-4 w-4 shrink-0 mt-0.5"
+                              />
+                              <label
+                                htmlFor={`rename-season-folders-${currentSlide}`}
+                                className="text-xs lg:text-sm cursor-pointer select-none"
+                              >
+                                {t.identify.renameSeasonFolders}
                               </label>
                             </div>
                           </div>
