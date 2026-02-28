@@ -24,6 +24,13 @@ const changelog: ChangelogEntry[] = [
     version: process.env.NEXT_PUBLIC_VERSION || "",
     date: "2026-02-28",
     changes: [
+    { type: "fixed", description: "Removed the autodelete empty folder" },
+    ],
+  },
+  {
+    version: "0.0.29",
+    date: "2026-02-28",
+    changes: [
       { type: "added", description: "Now the mover will move and rename subtitles too" },
     { type: "fixed", description: "Fixed episode missing" },
     ],

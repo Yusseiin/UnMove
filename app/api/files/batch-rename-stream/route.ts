@@ -765,36 +765,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Clean up empty source directories for move operations
-        if (operation === "move" && completed > 0) {
-          const sourceDirs = new Set<string>();
-
-          for (const file of files_to_process) {
-            try {
-              const sourceValidation = await validatePath(downloadBase, file.sourcePath);
-              if (sourceValidation.valid) {
-                sourceDirs.add(path.dirname(sourceValidation.absolutePath));
-              }
-            } catch {
-              // Skip
-            }
-          }
-
-          const sortedDirs = [...sourceDirs].sort(
-            (a, b) => b.split(path.sep).length - a.split(path.sep).length
-          );
-
-          for (const dir of sortedDirs) {
-            try {
-              const entries = await fs.readdir(dir);
-              if (entries.length === 0) {
-                await fs.rmdir(dir);
-              }
-            } catch {
-              // Skip
-            }
-          }
-        }
+        // Note: empty source directories are intentionally NOT cleaned up after move operations.
+        // Users may want to keep their folder structure intact.
 
         // Create main folders (and optional subfolders) and move files into them (for rename operation only)
         if (operation === "rename" && folderCreates && folderCreates.length > 0) {
