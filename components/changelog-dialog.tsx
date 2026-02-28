@@ -22,13 +22,21 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-02-28",
+    changes: [
+      { type: "added", description: "Now the mover will move and rename subtitles too" },
+    { type: "fixed", description: "Fixed episode missing" },
+    ],
+  },
+  {
+    version: "0.0.28",
     date: "2026-02-07",
     changes: [
       { type: "fixed", description: "Bug fix" },
     ],
   },
   {
-    version: "27",
+    version: "0.0.27",
     date: "2026-02-07",
     changes: [
       { type: "fixed", description: "Fixed some style issue" },

@@ -201,6 +201,9 @@ export function IdentifyDialog({
   const [renameMainFolder, setRenameMainFolder] = useState(false);
   const [createMainFolder, setCreateMainFolder] = useState(false);
 
+  // Existing episodes at destination (for missing episodes calculation)
+  const [existingEpisodesAtDest, setExistingEpisodesAtDest] = useState<{ season: number; episode: number }[]>([]);
+
   // Media type filter for search (series or movie)
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"series" | "movie" | null>(defaultMediaType ?? null);
 
@@ -470,6 +473,55 @@ export function IdentifyDialog({
       checkExistingFiles();
     }
   }, [fileMappings]);
+
+  // Scan destination folder for existing episodes when base folder or selection changes
+  useEffect(() => {
+    if (!selectedBaseFolder || !selectedResult || selectedResult.type !== "series" || episodes.length === 0) {
+      setExistingEpisodesAtDest([]);
+      return;
+    }
+
+    const template = getSeriesNamingTemplate();
+    const seriesName = getDisplayName(selectedResult, language);
+    const seriesYear = selectedResult.year || "";
+
+    // Build the destination series folder path using template
+    const result = applySeriesTemplate(template, {
+      seriesName,
+      seriesYear,
+      season: 1,
+      episode: 1,
+      episodeTitle: "",
+      quality: "",
+      codec: "",
+      extraTags: "",
+      extension: "mkv",
+    });
+
+    const folderPath = `${selectedBaseFolder}/${result.seriesFolder}`;
+
+    const controller = new AbortController();
+
+    fetch("/api/files/scan-existing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folderPath }),
+      signal: controller.signal,
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.episodes) {
+          setExistingEpisodesAtDest(data.episodes);
+        } else {
+          setExistingEpisodesAtDest([]);
+        }
+      })
+      .catch(() => {
+        setExistingEpisodesAtDest([]);
+      });
+
+    return () => controller.abort();
+  }, [selectedBaseFolder, selectedResult, episodes, language, getSeriesNamingTemplate]);
 
   const scanFiles = async () => {
     setIsScanning(true);
@@ -1206,6 +1258,11 @@ export function IdentifyDialog({
 
     const result: Record<number, TVDBEpisode[]> = {};
 
+    // Build a set of existing episodes at destination (season:episode keys)
+    const existingAtDestSet = new Set(
+      existingEpisodesAtDest.map(ep => `${ep.season}:${ep.episode}`)
+    );
+
     // Get all seasons that have episodes in TVDB
     const allSeasons = [...new Set(episodes.map(ep => ep.seasonNumber))].sort((a, b) => a - b);
 
@@ -1220,8 +1277,10 @@ export function IdentifyDialog({
           .map(m => m.episode!.number)
       );
 
-      // Find missing episodes
-      const missing = seasonEpisodes.filter(ep => !mappedEpisodeNumbers.has(ep.number));
+      // Find missing episodes (not in file mappings AND not already at destination)
+      const missing = seasonEpisodes.filter(
+        ep => !mappedEpisodeNumbers.has(ep.number) && !existingAtDestSet.has(`${ep.seasonNumber}:${ep.number}`)
+      );
 
       if (missing.length > 0) {
         result[season] = missing.sort((a, b) => a.number - b.number);
@@ -1229,7 +1288,7 @@ export function IdentifyDialog({
     }
 
     return result;
-  }, [selectedResult, episodes, fileMappings]);
+  }, [selectedResult, episodes, fileMappings, existingEpisodesAtDest]);
 
   // Total missing episodes count
   const totalMissingEpisodes = Object.values(missingEpisodesBySeason).reduce(

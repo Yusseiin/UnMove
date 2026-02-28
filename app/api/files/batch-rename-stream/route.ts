@@ -11,6 +11,12 @@ import {
   setFilePermissions,
 } from "@/lib/path-validator";
 
+const SUBTITLE_EXTENSIONS = [".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup"];
+const VIDEO_EXTENSIONS = [
+  ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm",
+  ".m4v", ".mpg", ".mpeg", ".ts", ".m2ts", ".vob"
+];
+
 interface FileRename {
   sourcePath: string;
   destinationPath: string;
@@ -208,6 +214,114 @@ async function copyDirectoryWithProgress(
   }
 }
 
+// Find companion subtitle files for a video file (same base name, subtitle extension)
+async function findCompanionSubtitles(videoAbsolutePath: string): Promise<string[]> {
+  const videoDir = path.dirname(videoAbsolutePath);
+  const videoExt = path.extname(videoAbsolutePath);
+  const videoBaseName = path.basename(videoAbsolutePath, videoExt);
+  const companions: string[] = [];
+
+  try {
+    const entries = await fs.readdir(videoDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const entryExt = path.extname(entry.name).toLowerCase();
+      if (!SUBTITLE_EXTENSIONS.includes(entryExt)) continue;
+      // Match: "Movie.srt" or "Movie.en.srt" / "Movie.forced.it.srt"
+      const nameWithoutSubExt = entry.name.slice(0, entry.name.length - entryExt.length);
+      if (nameWithoutSubExt === videoBaseName || nameWithoutSubExt.startsWith(videoBaseName + ".")) {
+        companions.push(path.join(videoDir, entry.name));
+      }
+    }
+  } catch {
+    // Directory unreadable, return empty
+  }
+
+  return companions;
+}
+
+// Compute the new path for a companion subtitle based on old/new video paths
+function computeNewSubtitlePath(
+  subtitleAbsPath: string,
+  oldVideoAbsPath: string,
+  newVideoAbsPath: string
+): string {
+  const oldVideoExt = path.extname(oldVideoAbsPath);
+  const oldVideoBase = path.basename(oldVideoAbsPath, oldVideoExt);
+  const newVideoExt = path.extname(newVideoAbsPath);
+  const newVideoBase = path.basename(newVideoAbsPath, newVideoExt);
+  const newVideoDir = path.dirname(newVideoAbsPath);
+
+  const subtitleName = path.basename(subtitleAbsPath);
+  const subtitleExt = path.extname(subtitleName);
+  const subtitleWithoutExt = subtitleName.slice(0, subtitleName.length - subtitleExt.length);
+
+  // Extract suffix (language tags like ".en", ".forced.it", etc.)
+  let suffix = "";
+  if (subtitleWithoutExt.length > oldVideoBase.length) {
+    suffix = subtitleWithoutExt.slice(oldVideoBase.length);
+  }
+
+  return path.join(newVideoDir, newVideoBase + suffix + subtitleExt);
+}
+
+// Process companion subtitle files after a video file was successfully operated on
+async function processCompanionSubtitles(
+  companionPaths: string[],
+  oldVideoAbsPath: string,
+  newVideoAbsPath: string,
+  operation: "copy" | "move" | "rename",
+  overwrite: boolean,
+  destBase: string,
+  createdDirs: Set<string>
+): Promise<string[]> {
+  const subtitleErrors: string[] = [];
+
+  for (const subPath of companionPaths) {
+    try {
+      const newSubPath = computeNewSubtitlePath(subPath, oldVideoAbsPath, newVideoAbsPath);
+      if (path.resolve(subPath) === path.resolve(newSubPath)) continue;
+
+      // Create destination directory if needed (for copy/move)
+      if (operation !== "rename") {
+        const destDir = path.dirname(newSubPath);
+        if (!createdDirs.has(destDir)) {
+          await mkdirWithPermissions(destDir, destBase);
+          createdDirs.add(destDir);
+        }
+      }
+
+      // Check if destination exists
+      try {
+        await fs.access(newSubPath);
+        if (!overwrite) continue; // Silently skip
+        await fs.rm(newSubPath, { force: true });
+      } catch {
+        // Doesn't exist, proceed
+      }
+
+      if (operation === "rename") {
+        await fs.rename(subPath, newSubPath);
+      } else if (operation === "move") {
+        try {
+          await fs.rename(subPath, newSubPath);
+        } catch {
+          await fs.copyFile(subPath, newSubPath);
+          await fs.unlink(subPath);
+        }
+      } else {
+        await fs.copyFile(subPath, newSubPath);
+      }
+
+      await setFilePermissions(newSubPath);
+    } catch (err) {
+      subtitleErrors.push(`Subtitle failed: ${path.basename(subPath)} - ${(err as Error).message}`);
+    }
+  }
+
+  return subtitleErrors;
+}
+
 export async function POST(request: NextRequest) {
   const body: BatchRenameRequest = await request.json();
   const { files, sourcePaths, destinationFolder, operation, overwrite = false, pane = "downloads", folderRenames, folderCreates, seasonFolderCreates } = body;
@@ -295,6 +409,11 @@ export async function POST(request: NextRequest) {
             // Get file size for progress (optional, could be used for byte-level progress)
             const sourceStats = await fs.stat(sourceFull);
             const fileSize = sourceStats.size;
+
+            // Discover companion subtitle files before any operation
+            const isVideoFile = !sourceStats.isDirectory() &&
+              VIDEO_EXTENSIONS.includes(path.extname(sourceFull).toLowerCase());
+            const companionSubtitles = isVideoFile ? await findCompanionSubtitles(sourceFull) : [];
 
             let destFull: string;
             let destBase: string;
@@ -621,6 +740,22 @@ export async function POST(request: NextRequest) {
               await setFilePermissions(destFull);
             }
 
+            // Process companion subtitle files (rename/copy/move alongside the video)
+            if (companionSubtitles.length > 0) {
+              const subErrors = await processCompanionSubtitles(
+                companionSubtitles,
+                sourceFull,
+                destFull,
+                operation,
+                overwrite,
+                destBase,
+                createdDirs
+              );
+              if (subErrors.length > 0) {
+                errors.push(...subErrors);
+              }
+            }
+
             completed++;
           } catch (err) {
             failed++;
@@ -784,6 +919,21 @@ export async function POST(request: NextRequest) {
                   await fs.rename(currentFilePath, destFilePath);
                   await setFilePermissions(destFilePath);
                   console.log("[FOLDER-CREATE] ✅ File moved successfully");
+
+                  // Move companion subtitle files
+                  if (VIDEO_EXTENSIONS.includes(path.extname(currentFilePath).toLowerCase())) {
+                    const companions = await findCompanionSubtitles(currentFilePath);
+                    for (const subPath of companions) {
+                      try {
+                        const subDest = path.join(targetFolderPath, path.basename(subPath));
+                        await fs.rename(subPath, subDest);
+                        await setFilePermissions(subDest);
+                        console.log("[FOLDER-CREATE] ✅ Companion subtitle moved:", path.basename(subPath));
+                      } catch {
+                        // Ignore subtitle move errors in folder creation
+                      }
+                    }
+                  }
                 } catch (err) {
                   console.log("[FOLDER-CREATE] ❌ ERROR moving file:", (err as Error).message);
                 }
@@ -943,6 +1093,21 @@ export async function POST(request: NextRequest) {
                   await fs.rename(currentFilePath, destFilePath);
                   await setFilePermissions(destFilePath);
                   console.log("[SEASON-FOLDER] ✅ File moved successfully");
+
+                  // Move companion subtitle files
+                  if (VIDEO_EXTENSIONS.includes(path.extname(currentFilePath).toLowerCase())) {
+                    const companions = await findCompanionSubtitles(currentFilePath);
+                    for (const subPath of companions) {
+                      try {
+                        const subDest = path.join(seasonFolderFull, path.basename(subPath));
+                        await fs.rename(subPath, subDest);
+                        await setFilePermissions(subDest);
+                        console.log("[SEASON-FOLDER] ✅ Companion subtitle moved:", path.basename(subPath));
+                      } catch {
+                        // Ignore subtitle move errors
+                      }
+                    }
+                  }
                 } catch (err) {
                   console.log("[SEASON-FOLDER] ❌ ERROR moving file:", (err as Error).message);
                   // Ignore move errors
