@@ -785,6 +785,8 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onCodecValuesChange={(values) => updateConfig({ codecValues: values })}
         extraTagValues={config.extraTagValues}
         onExtraTagValuesChange={(values) => updateConfig({ extraTagValues: values })}
+        deleteEmptyFoldersAfterMove={config.deleteEmptyFoldersAfterMove}
+        onDeleteEmptyFoldersAfterMoveChange={(value) => updateConfig({ deleteEmptyFoldersAfterMove: value })}
         isLoading={configLoading}
       />
     </div>

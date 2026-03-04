@@ -62,6 +62,8 @@ interface SettingsDialogProps {
   onCodecValuesChange?: (values: string[]) => void;
   extraTagValues?: string[];
   onExtraTagValuesChange?: (values: string[]) => void;
+  deleteEmptyFoldersAfterMove?: boolean;
+  onDeleteEmptyFoldersAfterMoveChange?: (value: boolean) => void;
   isLoading?: boolean;
 }
 
@@ -88,6 +90,8 @@ export function SettingsDialog({
   onCodecValuesChange,
   extraTagValues = [],
   onExtraTagValuesChange,
+  deleteEmptyFoldersAfterMove = false,
+  onDeleteEmptyFoldersAfterMoveChange,
   isLoading,
 }: SettingsDialogProps) {
   const t = useMemo(() => getTranslations(language), [language]);
@@ -685,6 +689,22 @@ export function SettingsDialog({
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
+          </div>
+
+          {/* Delete empty folders after move */}
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <Checkbox
+                checked={deleteEmptyFoldersAfterMove}
+                onCheckedChange={(checked) => onDeleteEmptyFoldersAfterMoveChange?.(checked === true)}
+                disabled={isLoading}
+                className="shrink-0 mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium">{t.settings.deleteEmptyFolders}</span>
+                <p className="text-xs text-muted-foreground">{t.settings.deleteEmptyFoldersDescription}</p>
+              </div>
+            </label>
           </div>
 
         </div>

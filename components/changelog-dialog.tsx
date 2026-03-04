@@ -22,6 +22,14 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-03-04",
+    changes: [
+    { type: "added", description: "Checkbox to choose if the user want the autodelete of empty folder" },
+    { type: "changed", description: "Now if you click outside of a popup it wont close it" },
+  ],
+  },
+  {
+    version: "0.0.30",
     date: "2026-02-28",
     changes: [
     { type: "fixed", description: "Removed the autodelete empty folder" },

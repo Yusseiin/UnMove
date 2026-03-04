@@ -72,7 +72,9 @@
       "quality": "e.g. 1080p",
       "codec": "e.g. x265",
       "extraTag": "e.g. 10bit"
-    }
+    },
+    "deleteEmptyFolders": "Delete empty source folders after move",
+    "deleteEmptyFoldersDescription": "Automatically remove empty folders left behind after moving files"
   },
   "toolbar": {
     "copy": "Copy",

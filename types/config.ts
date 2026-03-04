@@ -118,6 +118,8 @@ export interface AppConfig {
   moviesMetadataProvider?: MetadataProvider;
   // Legacy: single metadata provider (deprecated, use seriesMetadataProvider and moviesMetadataProvider)
   metadataProvider?: MetadataProvider;
+  // Delete empty source folders after move operations
+  deleteEmptyFoldersAfterMove?: boolean;
 }
 
 // Default quality values to detect in filenames

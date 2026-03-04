@@ -72,7 +72,9 @@
       "quality": "z.B. 1080p",
       "codec": "z.B. x265",
       "extraTag": "z.B. 10bit"
-    }
+    },
+    "deleteEmptyFolders": "Leere Quellordner nach dem Verschieben löschen",
+    "deleteEmptyFoldersDescription": "Leere Ordner nach dem Verschieben von Dateien automatisch entfernen"
   },
   "toolbar": {
     "copy": "Kopieren",

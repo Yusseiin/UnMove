@@ -72,7 +72,9 @@
       "quality": "es. 1080p",
       "codec": "es. x265",
       "extraTag": "es. 10bit"
-    }
+    },
+    "deleteEmptyFolders": "Elimina cartelle vuote dopo lo spostamento",
+    "deleteEmptyFoldersDescription": "Rimuovi automaticamente le cartelle rimaste vuote dopo lo spostamento dei file"
   },
   "toolbar": {
     "copy": "Copia",

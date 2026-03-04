@@ -10,6 +10,28 @@ import {
   setDirectoryPermissions,
   setFilePermissions,
 } from "@/lib/path-validator";
+import type { AppConfig } from "@/types/config";
+
+function getConfigPath(): string {
+  const envPath = process.env.CONFIG_PATH;
+  if (envPath) {
+    if (!envPath.endsWith(".json")) {
+      return path.join(envPath, "unmove-config.json");
+    }
+    return envPath;
+  }
+  return path.join(process.cwd(), "unmove-config.json");
+}
+
+async function getConfig(): Promise<Partial<AppConfig>> {
+  try {
+    const configPath = getConfigPath();
+    const content = await fs.readFile(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return {};
+  }
+}
 
 const SUBTITLE_EXTENSIONS = [".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup"];
 const VIDEO_EXTENSIONS = [
@@ -765,8 +787,37 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Note: empty source directories are intentionally NOT cleaned up after move operations.
-        // Users may want to keep their folder structure intact.
+        // Clean up empty source directories for move operations (if enabled in config)
+        const appConfig = await getConfig();
+        if (operation === "move" && completed > 0 && appConfig.deleteEmptyFoldersAfterMove) {
+          const sourceDirs = new Set<string>();
+
+          for (const file of files_to_process) {
+            try {
+              const sourceValidation = await validatePath(downloadBase, file.sourcePath);
+              if (sourceValidation.valid) {
+                sourceDirs.add(path.dirname(sourceValidation.absolutePath));
+              }
+            } catch {
+              // Skip
+            }
+          }
+
+          const sortedDirs = [...sourceDirs].sort(
+            (a, b) => b.split(path.sep).length - a.split(path.sep).length
+          );
+
+          for (const dir of sortedDirs) {
+            try {
+              const entries = await fs.readdir(dir);
+              if (entries.length === 0) {
+                await fs.rmdir(dir);
+              }
+            } catch {
+              // Skip
+            }
+          }
+        }
 
         // Create main folders (and optional subfolders) and move files into them (for rename operation only)
         if (operation === "rename" && folderCreates && folderCreates.length > 0) {
