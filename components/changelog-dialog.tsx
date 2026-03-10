@@ -22,6 +22,13 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-03-10",
+    changes: [
+    { type: "added", description: "PWA Dependency" },
+    ],
+  },
+  {
+    version: "0.0.31",
     date: "2026-03-04",
     changes: [
     { type: "added", description: "Checkbox to choose if the user want the autodelete of empty folder" },
