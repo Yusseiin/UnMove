@@ -24,6 +24,13 @@ const changelog: ChangelogEntry[] = [
     version: process.env.NEXT_PUBLIC_VERSION || "",
     date: "2026-03-10",
     changes: [
+    { type: "added", description: "Closing x on the toast" },
+    ],
+  },
+  {
+    version: "0.0.32",
+    date: "2026-03-10",
+    changes: [
     { type: "added", description: "PWA Dependency" },
     ],
   },

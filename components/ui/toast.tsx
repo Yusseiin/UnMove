@@ -5,6 +5,7 @@ export const showErrorToast = (message: string = 'Oops, there was an error proce
     return toast.error(message, {
         description: description,
         position: 'top-center',
+        closeButton: true,
         classNames: {
             //description: "!text-muted-foreground",
         },
@@ -21,6 +22,7 @@ export const showSuccessToast = (message: string = 'Oops, there was an error pro
     return toast.success(message, {
         description: description,
         position: 'top-center',
+        closeButton: true,
         classNames: {
             description: "!text-muted-foreground",
         },
@@ -36,6 +38,7 @@ export const showInfoToast = (message: string = 'Oops, there was an error proces
     return toast.info(message, {
         description: description,
         position: 'top-center',
+        closeButton: true,
         classNames: {
             description: "!text-muted-foreground",
         },
@@ -51,6 +54,7 @@ export const showWarningToast = (message: string = 'Oops, there was an error pro
     return toast.warning(message, {
         description: description,
         position: 'top-center',
+        closeButton: true,
         classNames: {
             description: "!--color-black)",
         },
