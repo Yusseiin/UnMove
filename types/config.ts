@@ -120,6 +120,17 @@ export interface AppConfig {
   metadataProvider?: MetadataProvider;
   // Delete empty source folders after move operations
   deleteEmptyFoldersAfterMove?: boolean;
+  // Names to ignore when scanning (e.g., ["sample", "*.nfo"])
+  // A pattern without wildcards matches anywhere in the name, a pattern with
+  // * or ? is a glob matched against the whole name. Always case-insensitive.
+  excludePatterns?: string[];
+  // Also hide ignored files/folders in the file browser panes
+  hideExcludedInBrowser?: boolean;
+  // Base folder pre-selected as destination when identifying a series
+  // (empty/unset = media root)
+  defaultSeriesBaseFolder?: string;
+  // Base folder pre-selected as destination when identifying a movie
+  defaultMoviesBaseFolder?: string;
 }
 
 // Default quality values to detect in filenames
@@ -142,6 +153,10 @@ export const defaultCodecValues = [
 // Default extra tag values - empty by default, user must configure in their config file
 export const defaultExtraTagValues: string[] = [];
 
+// Default names to ignore when scanning - sample files/folders are never
+// the episodes the user wants to rename or move
+export const defaultExcludePatterns = ["sample"];
+
 export const defaultConfig: AppConfig = {
   language: "en",
   seriesBaseFolders: [],
@@ -153,6 +168,8 @@ export const defaultConfig: AppConfig = {
   extraTagValues: defaultExtraTagValues,
   seriesMetadataProvider: "tvdb",
   moviesMetadataProvider: "tmdb",
+  excludePatterns: defaultExcludePatterns,
+  hideExcludedInBrowser: false,
 };
 
 // Localized strings

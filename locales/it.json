@@ -66,12 +66,20 @@
     "useFFprobe": "Usa FFprobe",
     "customTemplate": "Template personalizzato",
     "namingTemplate": "Template denominazione",
+    "defaultDestination": "Destinazione predefinita",
+    "defaultDestinationDescription": "Preselezionata durante l'identificazione, al posto della radice media",
+    "excludePatterns": "File e cartelle da ignorare",
+    "excludePatternsDescription": "Nomi saltati durante la scansione (es. sample). Usa * o ? come caratteri jolly (es. *.nfo)",
+    "hideExcludedInBrowser": "Nascondi gli elementi ignorati nel browser file",
+    "hideExcludedInBrowserDescription": "Se disattivato restano visibili nei pannelli, così puoi comunque controllarli o eliminarli",
+    "mediaRoot": "(Radice Media)",
     "placeholder": {
       "anime": "es. Anime",
       "documentaries": "es. Documentari",
       "quality": "es. 1080p",
       "codec": "es. x265",
-      "extraTag": "es. 10bit"
+      "extraTag": "es. 10bit",
+      "excludePattern": "es. sample"
     },
     "deleteEmptyFolders": "Elimina cartelle vuote dopo lo spostamento",
     "deleteEmptyFoldersDescription": "Rimuovi automaticamente le cartelle rimaste vuote dopo lo spostamento dei file"

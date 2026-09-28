@@ -208,6 +208,9 @@ Settings are accessible via the gear icon in the top-right corner of the interfa
 | **Series Base Folders** | `[]` | List of base folders for TV series. Each folder has a `name` and `preserveQualityInfo` setting to keep quality/encoding info in filenames |
 | **Movies Base Folders** | `[]` | List of base folders for movies. Each folder has a `name` and `preserveQualityInfo` setting to keep quality/encoding info in filenames |
 | **Movie Folder Structure** | `name` | How movie files are organized. Options: `name` (Movie Name (Year)/Movie.mkv), `year` (Year/Movie.mkv), or `none` (Movie.mkv directly in base folder) |
+| **Default Destination** | `""` | Base folder pre-selected as destination when identifying (`defaultSeriesBaseFolder` / `defaultMoviesBaseFolder`). Empty means the media root |
+| **Ignored Files and Folders** | `["sample"]` | Names skipped while scanning (`excludePatterns`). A pattern without wildcards matches anywhere in the name, a pattern with `*` or `?` is matched against the whole name (e.g. `*.nfo`). Always case-insensitive. A path you select explicitly is still scanned |
+| **Hide Ignored in Browser** | `false` | Also hide ignored files and folders in the two file panes (`hideExcludedInBrowser`). Off by default so they can still be inspected or deleted |
 
 #### Example unmove-config.json
 
@@ -224,7 +227,11 @@ Settings are accessible via the gear icon in the top-right corner of the interfa
     { "name": "Movies", "preserveQualityInfo": false },
     { "name": "4K Movies", "preserveQualityInfo": true }
   ],
-  "movieFolderStructure": "name"
+  "movieFolderStructure": "name",
+  "defaultSeriesBaseFolder": "Anime",
+  "defaultMoviesBaseFolder": "Movies",
+  "excludePatterns": ["sample", "*.nfo"],
+  "hideExcludedInBrowser": false
 }
 ```
 

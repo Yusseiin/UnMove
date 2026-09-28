@@ -104,6 +104,9 @@ interface IdentifyDialogProps {
   metadataProvider?: MetadataProvider;
   seriesBaseFolders?: BaseFolder[];
   moviesBaseFolders?: BaseFolder[];
+  // Destination pre-selected from settings ("" = media root)
+  defaultSeriesBaseFolder?: string;
+  defaultMoviesBaseFolder?: string;
   // Global naming templates (used when folder doesn't have override)
   seriesNamingTemplate?: SeriesNamingTemplate;
   movieNamingTemplate?: MovieNamingTemplate;
@@ -131,6 +134,8 @@ export function IdentifyDialog({
   metadataProvider,
   seriesBaseFolders = [],
   moviesBaseFolders = [],
+  defaultSeriesBaseFolder = "",
+  defaultMoviesBaseFolder = "",
   seriesNamingTemplate,
   movieNamingTemplate,
   qualityValues,
@@ -194,6 +199,15 @@ export function IdentifyDialog({
 
   // Selected base folder for series/movies
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
+
+  // Destination configured in settings for this media type. A default pointing
+  // at a folder that is no longer configured falls back to the media root.
+  const getDefaultBaseFolder = useCallback((type?: string): string => {
+    const isMovie = type === "movie";
+    const defaultFolder = isMovie ? defaultMoviesBaseFolder : defaultSeriesBaseFolder;
+    const folders = isMovie ? moviesBaseFolders : seriesBaseFolders;
+    return defaultFolder && folders.some(f => f.name === defaultFolder) ? defaultFolder : "";
+  }, [defaultMoviesBaseFolder, defaultSeriesBaseFolder, moviesBaseFolders, seriesBaseFolders]);
 
   // State for folder renaming options (only for rename operation)
   const [renameSeasonFolders, setRenameSeasonFolders] = useState(false);
@@ -349,8 +363,8 @@ export function IdentifyDialog({
       setEpisodes([]);
       setFileMappings([]);
     }
-    // Reset base folder selection when result changes
-    setSelectedBaseFolder("");
+    // Start from the destination configured in settings when the result changes
+    setSelectedBaseFolder(getDefaultBaseFolder(selectedResult?.type));
   }, [selectedResult, episodeOrder]);
 
   // Map files to episodes when episodes are loaded

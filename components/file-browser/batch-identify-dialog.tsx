@@ -103,6 +103,8 @@ interface BatchIdentifyDialogProps {
   language?: Language;
   metadataProvider?: MetadataProvider;
   moviesBaseFolders?: BaseFolder[];
+  // Destination pre-selected from settings ("" = media root)
+  defaultMoviesBaseFolder?: string;
   // Global movie naming template
   movieNamingTemplate?: MovieNamingTemplate;
   // Quality/codec/extraTag values from config
@@ -122,6 +124,7 @@ export function BatchIdentifyDialog({
   language = "en",
   metadataProvider: defaultProvider = "tvdb",
   moviesBaseFolders = [],
+  defaultMoviesBaseFolder = "",
   movieNamingTemplate,
   qualityValues,
   codecValues,
@@ -140,8 +143,25 @@ export function BatchIdentifyDialog({
   // Per-file identification state
   const [fileIdentifications, setFileIdentifications] = useState<FileIdentification[]>([]);
 
+  // Destination configured in settings, ignored when it points at a folder
+  // that is no longer configured
+  const defaultBaseFolder = useMemo(
+    () =>
+      defaultMoviesBaseFolder && moviesBaseFolders.some(f => f.name === defaultMoviesBaseFolder)
+        ? defaultMoviesBaseFolder
+        : "",
+    [defaultMoviesBaseFolder, moviesBaseFolders]
+  );
+
   // Selected base folder for movies
-  const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
+  const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>(defaultBaseFolder);
+
+  // Start from the configured destination every time the dialog opens
+  useEffect(() => {
+    if (open) {
+      setSelectedBaseFolder(defaultBaseFolder);
+    }
+  }, [open, defaultBaseFolder]);
 
   // FFprobe checkbox state for rename operations
   const [useFFprobe, setUseFFprobe] = useState(true);

@@ -22,6 +22,17 @@ interface ChangelogEntry {
 const changelog: ChangelogEntry[] = [
   {
     version: process.env.NEXT_PUBLIC_VERSION || "",
+    date: "2026-09-28",
+    changes: [
+    { type: "added", description: "Setting to ignore files and folders by name while scanning (e.g. sample)" },
+    { type: "added", description: "Setting for a default destination folder when identifying series and movies" },
+    { type: "added", description: "The changelog opens by itself the first time after an update" },
+    { type: "fixed", description: "Series name is taken from the folder when the file is only named like \"Episodio 01\"" },
+    { type: "fixed", description: "A season folder like \"Stagione 2\" is no longer ignored in favour of season 1" },
+    ],
+  },
+  {
+    version: "0.0.33",
     date: "2026-03-23",
     changes: [
     { type: "added", description: "Closing x on the toast" },
@@ -124,6 +135,40 @@ const changelog: ChangelogEntry[] = [
     ],
   }
 ];
+
+// Identity of the newest changelog entry. It changes on every release - the
+// version comes from the build (NEXT_PUBLIC_VERSION) and the date from the
+// entry itself - so a new entry still counts as an update when the version
+// number isn't bumped.
+const latestEntryKey = `${changelog[0].version}|${changelog[0].date}`;
+
+const CHANGELOG_SEEN_KEY = "unmove-changelog-seen";
+
+/**
+ * True when this browser hasn't seen the newest changelog entry yet, so the
+ * dialog can open itself once after an update. Pure read: call
+ * markChangelogSeen() once it has actually been shown.
+ */
+export function hasUnseenChangelog(): boolean {
+  try {
+    return localStorage.getItem(CHANGELOG_SEEN_KEY) !== latestEntryKey;
+  } catch {
+    // Storage unavailable (private mode, blocked cookies): never nag
+    return false;
+  }
+}
+
+/**
+ * Remember the newest changelog entry as seen, so it never opens on its own
+ * again until the next release
+ */
+export function markChangelogSeen(): void {
+  try {
+    localStorage.setItem(CHANGELOG_SEEN_KEY, latestEntryKey);
+  } catch {
+    // Storage unavailable: the dialog just opens again next time
+  }
+}
 
 const typeColors: Record<string, string> = {
   added: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",

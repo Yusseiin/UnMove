@@ -1,4 +1,5 @@
 import type { ParsedFileName } from "@/types/tvdb";
+import { normalizeForComparison } from "@/lib/matching-utils";
 import type { SeriesNamingTemplate, MovieNamingTemplate } from "@/types/config";
 import { defaultSeriesNamingTemplate, defaultMovieNamingTemplate, defaultQualityValues, defaultCodecValues, defaultExtraTagValues } from "@/types/config";
 
@@ -124,6 +125,198 @@ const RELEASE_PATTERNS = [
 // Common scene group patterns (at end of filename)
 const GROUP_PATTERN = /-[a-z0-9]+$/i;
 
+// Words that introduce an episode number without naming the show
+// (e.g. "Episodio 01", "Ep.05", "Folge 3"). Safe to match anywhere in the name.
+const EPISODE_WORDS = [
+  "episodio",
+  "episodi",
+  "episodios",
+  "episode",
+  "episodes",
+  "episodul",
+  "épisode",
+  "epis",
+  "eps",
+  "ep",
+  "puntata",
+  "puntate",
+  "folge",
+  "bölüm",
+  "bolum",
+  "aflevering",
+  "avsnitt",
+  "odcinek",
+];
+
+// Same idea, but these words also appear inside real titles
+// ("John Wick - Capitolo 4"), so they only count at the very start of the name
+const LEADING_EPISODE_WORDS = [
+  "capitolo",
+  "capítulo",
+  "capitulo",
+  "chapter",
+  "parte",
+  "part",
+  "pt",
+];
+
+// Placeholder names that carry no show information at all
+const PLACEHOLDER_NAMES = [
+  "video",
+  "movie",
+  "film",
+  "file",
+  "title",
+  "track",
+  "untitled",
+  "senza titolo",
+  "sin titulo",
+  "sin título",
+  "new file",
+  "sample",
+  "vol",
+  "volume",
+  "disc",
+  "disk",
+  "cd",
+  "dvd",
+];
+
+// Folder names that describe the library structure rather than the show
+const STRUCTURE_FOLDER_PATTERNS = [
+  /^season[\s._-]*\d*$/i,
+  /^stagione[\s._-]*\d*$/i,
+  /^temporada[\s._-]*\d*$/i,
+  /^saison[\s._-]*\d*$/i,
+  /^staffel[\s._-]*\d*$/i,
+  /^s\d{1,2}$/i,
+  /^specials?$/i,
+  /^speciali$/i,
+  /^extras?$/i,
+  /^bonus$/i,
+  /^subs?$/i,
+  /^subtitles?$/i,
+  /^sottotitoli$/i,
+  /^sample$/i,
+  /^disc[\s._-]*\d*$/i,
+  /^cd\s*\d*$/i,
+  /^dvd\s*\d*$/i,
+  /^video_ts$/i,
+  /^bdmv$/i,
+];
+
+// "Season 2", "Stagione 02", "S03" at the end of a folder name
+const TRAILING_SEASON_PATTERN =
+  /[\s._-]*(?:season|stagione|temporada|saison|staffel|s)[\s._-]*\d{1,2}\s*$/i;
+
+// A folder whose whole name is a season marker ("Season 02", "Stagione 1", "S03")
+const SEASON_FOLDER_PATTERN =
+  /^(?:season|stagione|temporada|saison|staffel|s)[\s._-]*(\d{1,2})$/i;
+
+// Episode word followed by a number, anywhere in the name ("Show - Episodio 05")
+const EPISODE_WORD_PATTERN = new RegExp(
+  `(?:^|[.\\s_\\-])(?:${EPISODE_WORDS.join("|")})[.\\s_\\-]*(\\d{1,3})(?!\\d)`,
+  "i"
+);
+
+// Episode word followed by a number, only at the start ("Capitolo 2")
+const LEADING_EPISODE_WORD_PATTERN = new RegExp(
+  `^(?:${LEADING_EPISODE_WORDS.join("|")})[.\\s_\\-]*(\\d{1,3})(?!\\d)`,
+  "i"
+);
+
+/**
+ * Check whether a name is only a generic episode label ("Episodio", "Episode 1",
+ * "01", "Video") and therefore useless as a show name for a metadata search.
+ */
+export function isGenericMediaName(name: string): boolean {
+  const normalized = name
+    .toLowerCase()
+    .replace(/[.\s_\-]+/g, " ")
+    .replace(/[#()[\]]/g, "")
+    .trim();
+
+  if (!normalized) return true;
+
+  // Drop a trailing number, including "1 di 12" / "1 of 12" forms
+  const withoutNumber = normalized
+    .replace(/\s*\d+\s*(?:of|di|su|von|de)\s*\d+$/, "")
+    .replace(/\s*\d+$/, "")
+    .trim();
+
+  // Nothing but a number ("01", "1 di 12")
+  if (!withoutNumber) return true;
+
+  return (
+    EPISODE_WORDS.includes(withoutNumber) ||
+    LEADING_EPISODE_WORDS.includes(withoutNumber) ||
+    PLACEHOLDER_NAMES.includes(withoutNumber)
+  );
+}
+
+/**
+ * Check whether a folder name only describes structure (Season 01, Extras, Subs...)
+ */
+export function isStructureFolderName(name: string): boolean {
+  const trimmed = name.trim();
+  return STRUCTURE_FOLDER_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * Read the season number from the nearest folder that is only a season marker
+ * ("Season 02", "Stagione 1", "S03")
+ *
+ * @param folderNames - Folder names ordered from the file's own folder outwards
+ */
+export function pickSeasonFromFolders(folderNames: string[]): number | undefined {
+  for (const folderName of folderNames) {
+    const match = folderName.trim().match(SEASON_FOLDER_PATTERN);
+    if (match) return parseInt(match[1], 10);
+  }
+  return undefined;
+}
+
+/**
+ * Pick a usable show name from the folders containing a file.
+ *
+ * @param folderNames - Folder names ordered from the file's own folder outwards
+ * @param options - Quality/codec/extraTag values used to clean the folder name
+ * @param currentName - Name parsed from the filename, if any. When a folder
+ *   carries the same name, the filename is considered confirmed (shows really
+ *   called "Episodes" or "24") and null is returned so it is kept as is.
+ * @returns The parsed name of the first folder that actually names something,
+ *          or null when every folder is structural/generic
+ */
+export function pickNameFromFolders(
+  folderNames: string[],
+  options?: ParseOptions,
+  currentName?: string
+): { name: string; year?: number } | null {
+  const current = currentName ? normalizeForComparison(currentName) : "";
+
+  for (const folderName of folderNames) {
+    if (isStructureFolderName(folderName)) continue;
+
+    // "Breaking Bad S01" / "Dark Season 2" -> drop the trailing season marker
+    const withoutSeason = folderName.replace(TRAILING_SEASON_PATTERN, "").trim();
+    if (!withoutSeason || isStructureFolderName(withoutSeason)) continue;
+
+    // Reuse the filename parser to strip release tags, quality, year, etc.
+    const parsed = parseFileName(withoutSeason, options);
+    const candidate = parsed.cleanName.trim();
+    if (!candidate) continue;
+
+    // The folder repeats the name found in the file: keep the filename's name
+    if (current && normalizeForComparison(candidate) === current) return null;
+
+    if (isGenericMediaName(candidate)) continue;
+
+    return { name: candidate, year: parsed.year };
+  }
+
+  return null;
+}
+
 /**
  * Build quality and codec patterns from config values only (no hardcoded fallbacks)
  */
@@ -232,6 +425,9 @@ export function parseFileName(filename: string, options?: ParseOptions): ParsedF
   // Try to extract season and episode info
   let season: number | undefined;
   let episode: number | undefined;
+  // True when season 1 is a fallback rather than something read from the name,
+  // so callers can prefer a season taken from the folder structure
+  let seasonAssumed = false;
   let isLikelyMovie = true;
 
   // Pattern 1: S01E02 or S1E2 (can appear at start or after separator)
@@ -273,8 +469,35 @@ export function parseFileName(filename: string, options?: ParseOptions): ParsedF
     const epOnly = workingName.match(/[.\s_\-][Ee](?:p(?:isode)?)?[.\s_\-]?(\d{1,3})/i);
     if (epOnly) {
       season = 1;
+      seasonAssumed = true;
       episode = parseInt(epOnly[1], 10);
       workingName = workingName.slice(0, epOnly.index);
+      isLikelyMovie = false;
+    }
+  }
+
+  // Pattern 4b: Episode word + number like "Episodio 1", "Ep 5", "Folge 3"
+  // (no season given, assume season 1)
+  if (season === undefined) {
+    const wordEp = workingName.match(EPISODE_WORD_PATTERN);
+    if (wordEp) {
+      season = 1;
+      seasonAssumed = true;
+      episode = parseInt(wordEp[1], 10);
+      workingName = workingName.slice(0, wordEp.index);
+      isLikelyMovie = false;
+    }
+  }
+
+  // Pattern 4c: Episode word that is also common in titles ("Capitolo 2"),
+  // only accepted when the name starts with it
+  if (season === undefined) {
+    const leadingEp = workingName.trim().match(LEADING_EPISODE_WORD_PATTERN);
+    if (leadingEp) {
+      season = 1;
+      seasonAssumed = true;
+      episode = parseInt(leadingEp[1], 10);
+      workingName = "";
       isLikelyMovie = false;
     }
   }
@@ -289,6 +512,7 @@ export function parseFileName(filename: string, options?: ParseOptions): ParsedF
       // and not likely a year (1900-2099)
       if (epNum > 0 && epNum < 10000 && (epNum < 1900 || epNum > 2099)) {
         season = 1;
+        seasonAssumed = true;
         episode = epNum;
         workingName = workingName.slice(0, standaloneEp.index);
         isLikelyMovie = false;
@@ -345,6 +569,7 @@ export function parseFileName(filename: string, options?: ParseOptions): ParsedF
     originalName: filename,
     cleanName,
     season,
+    seasonAssumed: seasonAssumed || undefined,
     episode,
     year,
     quality,

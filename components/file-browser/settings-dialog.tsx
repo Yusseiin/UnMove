@@ -64,6 +64,16 @@ interface SettingsDialogProps {
   onExtraTagValuesChange?: (values: string[]) => void;
   deleteEmptyFoldersAfterMove?: boolean;
   onDeleteEmptyFoldersAfterMoveChange?: (value: boolean) => void;
+  // Destination pre-selected when identifying ("" = media root)
+  defaultSeriesBaseFolder?: string;
+  onDefaultSeriesBaseFolderChange?: (folderName: string) => void;
+  defaultMoviesBaseFolder?: string;
+  onDefaultMoviesBaseFolderChange?: (folderName: string) => void;
+  // Names to ignore while scanning
+  excludePatterns?: string[];
+  onExcludePatternsChange?: (patterns: string[]) => void;
+  hideExcludedInBrowser?: boolean;
+  onHideExcludedInBrowserChange?: (value: boolean) => void;
   isLoading?: boolean;
 }
 
@@ -92,6 +102,14 @@ export function SettingsDialog({
   onExtraTagValuesChange,
   deleteEmptyFoldersAfterMove = false,
   onDeleteEmptyFoldersAfterMoveChange,
+  defaultSeriesBaseFolder = "",
+  onDefaultSeriesBaseFolderChange,
+  defaultMoviesBaseFolder = "",
+  onDefaultMoviesBaseFolderChange,
+  excludePatterns = [],
+  onExcludePatternsChange,
+  hideExcludedInBrowser = false,
+  onHideExcludedInBrowserChange,
   isLoading,
 }: SettingsDialogProps) {
   const t = useMemo(() => getTranslations(language), [language]);
@@ -101,6 +119,7 @@ export function SettingsDialog({
   const [newQualityValue, setNewQualityValue] = useState("");
   const [newCodecValue, setNewCodecValue] = useState("");
   const [newExtraTagValue, setNewExtraTagValue] = useState("");
+  const [newExcludePattern, setNewExcludePattern] = useState("");
 
   // Naming template dialog state
   const [namingDialogOpen, setNamingDialogOpen] = useState(false);
@@ -185,6 +204,10 @@ export function SettingsDialog({
 
   const removeSeriesFolder = (folderName: string) => {
     onSeriesBaseFoldersChange(seriesBaseFolders.filter(f => f.name !== folderName));
+    // Don't leave the default pointing at a folder that no longer exists
+    if (defaultSeriesBaseFolder === folderName) {
+      onDefaultSeriesBaseFolderChange?.("");
+    }
   };
 
   const toggleSeriesFolderFFprobe = (folderName: string, alwaysUse: boolean) => {
@@ -203,6 +226,10 @@ export function SettingsDialog({
 
   const removeMoviesFolder = (folderName: string) => {
     onMoviesBaseFoldersChange(moviesBaseFolders.filter(f => f.name !== folderName));
+    // Don't leave the default pointing at a folder that no longer exists
+    if (defaultMoviesBaseFolder === folderName) {
+      onDefaultMoviesBaseFolderChange?.("");
+    }
   };
 
   const toggleMoviesFolderFFprobe = (folderName: string, alwaysUse: boolean) => {
@@ -255,6 +282,19 @@ export function SettingsDialog({
 
   const removeExtraTagValue = (value: string) => {
     onExtraTagValuesChange?.(extraTagValues.filter(v => v !== value));
+  };
+
+  // Exclude pattern helpers
+  const addExcludePattern = () => {
+    const trimmed = newExcludePattern.trim();
+    if (trimmed && !excludePatterns.includes(trimmed)) {
+      onExcludePatternsChange?.([...excludePatterns, trimmed]);
+      setNewExcludePattern("");
+    }
+  };
+
+  const removeExcludePattern = (pattern: string) => {
+    onExcludePatternsChange?.(excludePatterns.filter(p => p !== pattern));
   };
 
   return (
@@ -448,6 +488,41 @@ export function SettingsDialog({
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Destination pre-selected when identifying */}
+            {seriesBaseFolders.length > 0 && (
+              <div className="space-y-1 pt-1">
+                <Label className="text-xs font-normal text-muted-foreground">
+                  {t.settings.defaultDestination}
+                </Label>
+                <Select
+                  value={
+                    seriesBaseFolders.some(f => f.name === defaultSeriesBaseFolder)
+                      ? defaultSeriesBaseFolder
+                      : "__none__"
+                  }
+                  onValueChange={(value) =>
+                    onDefaultSeriesBaseFolderChange?.(value === "__none__" ? "" : value)
+                  }
+                  disabled={isLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t.settings.mediaRoot}</SelectItem>
+                    {seriesBaseFolders.map((folder) => (
+                      <SelectItem key={folder.name} value={folder.name}>
+                        {folder.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  {t.settings.defaultDestinationDescription}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Movies base folders */}
@@ -530,6 +605,41 @@ export function SettingsDialog({
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Destination pre-selected when identifying */}
+            {moviesBaseFolders.length > 0 && (
+              <div className="space-y-1 pt-1">
+                <Label className="text-xs font-normal text-muted-foreground">
+                  {t.settings.defaultDestination}
+                </Label>
+                <Select
+                  value={
+                    moviesBaseFolders.some(f => f.name === defaultMoviesBaseFolder)
+                      ? defaultMoviesBaseFolder
+                      : "__none__"
+                  }
+                  onValueChange={(value) =>
+                    onDefaultMoviesBaseFolderChange?.(value === "__none__" ? "" : value)
+                  }
+                  disabled={isLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t.settings.mediaRoot}</SelectItem>
+                    {moviesBaseFolders.map((folder) => (
+                      <SelectItem key={folder.name} value={folder.name}>
+                        {folder.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  {t.settings.defaultDestinationDescription}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Quality values */}
@@ -689,6 +799,72 @@ export function SettingsDialog({
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
+          </div>
+
+          {/* Ignored files and folders */}
+          <div className="space-y-2">
+            <Label>
+              {t.settings.excludePatterns}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t.settings.excludePatternsDescription}
+            </p>
+
+            {/* Existing patterns */}
+            {excludePatterns.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {excludePatterns.map((pattern) => (
+                  <span
+                    key={pattern}
+                    className="inline-flex items-center gap-1 bg-secondary text-secondary-foreground px-2 py-0.5 rounded text-xs"
+                  >
+                    {pattern}
+                    <button
+                      type="button"
+                      onClick={() => removeExcludePattern(pattern)}
+                      className="hover:text-destructive"
+                      disabled={isLoading}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Add new pattern */}
+            <div className="flex gap-2">
+              <Input
+                value={newExcludePattern}
+                onChange={(e) => setNewExcludePattern(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, addExcludePattern)}
+                placeholder={t.settings.placeholder.excludePattern}
+                disabled={isLoading}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={addExcludePattern}
+                disabled={isLoading || !newExcludePattern.trim()}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <label className="flex items-start gap-2 cursor-pointer pt-1">
+              <Checkbox
+                checked={hideExcludedInBrowser}
+                onCheckedChange={(checked) => onHideExcludedInBrowserChange?.(checked === true)}
+                disabled={isLoading}
+                className="shrink-0 mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium">{t.settings.hideExcludedInBrowser}</span>
+                <p className="text-xs text-muted-foreground">{t.settings.hideExcludedInBrowserDescription}</p>
+              </div>
+            </label>
           </div>
 
           {/* Delete empty folders after move */}

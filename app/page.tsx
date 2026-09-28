@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileBrowser } from "@/components/file-browser/file-browser";
-import { ChangelogDialog } from "@/components/changelog-dialog";
+import {
+  ChangelogDialog,
+  hasUnseenChangelog,
+  markChangelogSeen,
+} from "@/components/changelog-dialog";
 import { PlexPopover } from "@/components/plex-popover";
 import { Toaster } from "@/components/ui/sonner";
 import Image from "next/image";
@@ -27,6 +31,20 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
   const { config } = useConfig();
+
+  // Show what changed once, the first time the app runs after an update.
+  // Opening is deferred to the next frame so the app paints first, and the
+  // entry is only marked as seen once the dialog actually opens.
+  useEffect(() => {
+    if (!hasUnseenChangelog()) return;
+
+    const frame = requestAnimationFrame(() => {
+      markChangelogSeen();
+      setChangelogOpen(true);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   return (
     <div className="h-dvh max-h-dvh flex flex-col overflow-hidden">

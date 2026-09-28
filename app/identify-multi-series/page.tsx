@@ -145,8 +145,21 @@ function IdentifyMultiSeriesContent() {
   // Series groups state
   const [seriesGroups, setSeriesGroups] = useState<SeriesGroup[]>([]);
 
+  // Destination configured in settings, ignored when it points at a folder
+  // that is no longer configured
+  const defaultBaseFolder = useMemo(() => {
+    const configured = config?.defaultSeriesBaseFolder;
+    const folders = config?.seriesBaseFolders;
+    return configured && folders?.some((f) => f.name === configured) ? configured : "";
+  }, [config?.defaultSeriesBaseFolder, config?.seriesBaseFolders]);
+
   // Selected base folder for series
   const [selectedBaseFolder, setSelectedBaseFolder] = useState<string>("");
+
+  // Apply the configured destination once the config has loaded
+  useEffect(() => {
+    setSelectedBaseFolder(defaultBaseFolder);
+  }, [defaultBaseFolder]);
 
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);

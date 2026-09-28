@@ -3,6 +3,9 @@ import fs from "fs/promises";
 import path from "path";
 import { getBasePath, validatePath } from "@/lib/path-validator";
 import { getFileExtension, sortEntries } from "@/lib/file-utils";
+import { isExcludedName } from "@/lib/exclude-patterns";
+import { readAppConfig } from "@/lib/server-config";
+import { defaultExcludePatterns } from "@/types/config";
 import type { FileEntry, ListFilesResponse, PaneType } from "@/types/files";
 
 export async function GET(request: NextRequest) {
@@ -39,11 +42,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Ignored names are only hidden here when the user asked for it - by
+    // default they stay visible so they can still be inspected and deleted
+    const config = await readAppConfig();
+    const excludePatterns = config.hideExcludedInBrowser
+      ? config.excludePatterns ?? defaultExcludePatterns
+      : undefined;
+
     // Read directory contents
     const items = await fs.readdir(absolutePath, { withFileTypes: true });
     const entries: FileEntry[] = [];
 
     for (const item of items) {
+      if (isExcludedName(item.name, excludePatterns)) continue;
+
       try {
         const itemPath = path.join(absolutePath, item.name);
         const itemStat = await fs.stat(itemPath);

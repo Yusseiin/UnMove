@@ -2,11 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { validatePath, getBasePath } from "@/lib/path-validator";
-import { parseFileName, ParseOptions } from "@/lib/filename-parser";
+import {
+  parseFileName,
+  ParseOptions,
+  isGenericMediaName,
+  pickNameFromFolders,
+  pickSeasonFromFolders,
+} from "@/lib/filename-parser";
 import { getMediaInfo, buildQualityInfoFromMedia } from "@/lib/media-info";
+import { isExcludedName } from "@/lib/exclude-patterns";
+import { readAppConfig } from "@/lib/server-config";
 import type { ParsedFileName } from "@/types/tvdb";
-import type { AppConfig } from "@/types/config";
-import { defaultQualityValues, defaultCodecValues, defaultExtraTagValues } from "@/types/config";
+import {
+  defaultQualityValues,
+  defaultCodecValues,
+  defaultExtraTagValues,
+  defaultExcludePatterns,
+} from "@/types/config";
 
 // Common video extensions
 const VIDEO_EXTENSIONS = [
@@ -33,16 +45,78 @@ interface ScanResponse {
   error?: string;
 }
 
+/**
+ * List the folders containing a file, from its own folder outwards,
+ * stopping before the pane base path (downloads/media root)
+ */
+function getFolderChain(filePath: string, basePath: string): string[] {
+  const base = path.resolve(basePath);
+  const chain: string[] = [];
+  let dir = path.resolve(path.dirname(filePath));
+
+  while (dir !== base && dir.startsWith(base + path.sep)) {
+    chain.push(path.basename(dir));
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return chain;
+}
+
+/**
+ * Fill in what the filename alone cannot say, using the folders above the file.
+ *
+ * Filenames like "Episodio 01.mkv" name the episode, not the show, so searching
+ * TVDB/TMDB with them never matches. In that case the containing folder
+ * (skipping Season/Extras folders) is used as the show name instead.
+ * A "Season 02" folder is also preferred over the parser's assumed season 1.
+ */
+function applyFolderFallbacks(
+  parsed: ParsedFileName,
+  fullPath: string,
+  basePath: string,
+  parseOptions?: ParseOptions
+): void {
+  const folderChain = getFolderChain(fullPath, basePath);
+
+  if (parsed.season === undefined || parsed.seasonAssumed) {
+    const folderSeason = pickSeasonFromFolders(folderChain);
+    if (folderSeason !== undefined) {
+      parsed.season = folderSeason;
+      parsed.seasonAssumed = false;
+      parsed.isLikelyMovie = false;
+    }
+  }
+
+  if (!isGenericMediaName(parsed.cleanName)) return;
+
+  const fromFolder = pickNameFromFolders(folderChain, parseOptions, parsed.cleanName);
+  if (!fromFolder) return;
+
+  parsed.cleanName = fromFolder.name;
+  // Only take the folder's year if the filename didn't provide one
+  if (parsed.year === undefined && fromFolder.year !== undefined) {
+    parsed.year = fromFolder.year;
+  }
+}
+
 async function scanDirectory(
   dirPath: string,
   scanBasePath: string,
   downloadBasePath: string,
   files: ScannedFile[],
-  parseOptions?: ParseOptions
+  parseOptions?: ParseOptions,
+  excludePatterns?: string[]
 ): Promise<void> {
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
   for (const entry of entries) {
+    // Ignored names (sample folders, sample files...) never reach the identify
+    // list. Only what the scan finds on its own is filtered - a path the user
+    // picked explicitly is always honoured.
+    if (isExcludedName(entry.name, excludePatterns)) continue;
+
     const fullPath = path.join(dirPath, entry.name);
     const relativePath = path.relative(scanBasePath, fullPath);
     // Path relative to downloads base for use in batch-rename API
@@ -50,21 +124,36 @@ async function scanDirectory(
 
     if (entry.isDirectory()) {
       // Recursively scan subdirectories
-      await scanDirectory(fullPath, scanBasePath, downloadBasePath, files, parseOptions);
+      await scanDirectory(
+        fullPath,
+        scanBasePath,
+        downloadBasePath,
+        files,
+        parseOptions,
+        excludePatterns
+      );
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
       if (VIDEO_EXTENSIONS.includes(ext)) {
         // Parse the filename to extract show info
         const parsed = parseFileName(entry.name, parseOptions);
 
-        // Also try to extract season from folder path
-        if (parsed.season === undefined) {
-          const seasonMatch = relativePath.match(/[/\\]?Season\s*(\d{1,2})[/\\]/i);
+        // Also try to extract season from folder path.
+        // A season folder is better evidence than the parser's assumed season 1
+        // (filenames like "Episodio 05" only carry the episode number)
+        if (parsed.season === undefined || parsed.seasonAssumed) {
+          const seasonMatch = relativePath.match(
+            /[/\\]?(?:Season|Stagione|Temporada|Saison|Staffel)[\s._-]*(\d{1,2})[/\\]/i
+          );
           if (seasonMatch) {
             parsed.season = parseInt(seasonMatch[1], 10);
+            parsed.seasonAssumed = false;
             parsed.isLikelyMovie = false;
           }
         }
+
+        // Use the containing folders for anything the filename doesn't say
+        applyFolderFallbacks(parsed, fullPath, downloadBasePath, parseOptions);
 
         files.push({
           path: pathFromDownloads,
@@ -74,30 +163,6 @@ async function scanDirectory(
         });
       }
     }
-  }
-}
-
-// Config file path - must match the logic in /api/config/route.ts
-function getConfigPath(): string {
-  const envPath = process.env.CONFIG_PATH;
-  if (envPath) {
-    // If it's a directory, append the filename
-    if (!envPath.endsWith(".json")) {
-      return path.join(envPath, "unmove-config.json");
-    }
-    return envPath;
-  }
-  return path.join(process.cwd(), "unmove-config.json");
-}
-
-// Helper to read config
-async function getConfig(): Promise<Partial<AppConfig>> {
-  try {
-    const configPath = getConfigPath();
-    const content = await fs.readFile(configPath, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return {};
   }
 }
 
@@ -117,12 +182,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Read config for custom quality/codec/extraTag values
-    const config = await getConfig();
+    const config = await readAppConfig();
     const parseOptions: ParseOptions = {
       qualityValues: config.qualityValues ?? defaultQualityValues,
       codecValues: config.codecValues ?? defaultCodecValues,
       extraTagValues: config.extraTagValues ?? defaultExtraTagValues,
     };
+    const excludePatterns = config.excludePatterns ?? defaultExcludePatterns;
 
     // Use the appropriate base path based on pane
     const basePath = getBasePath(pane === "media" ? "media" : "downloads");
@@ -146,12 +212,21 @@ export async function POST(request: NextRequest) {
 
         if (stats.isDirectory()) {
           // Scan directory recursively
-          await scanDirectory(fullPath, fullPath, basePath, files, parseOptions);
+          await scanDirectory(
+            fullPath,
+            fullPath,
+            basePath,
+            files,
+            parseOptions,
+            excludePatterns
+          );
         } else if (stats.isFile()) {
           // Single file
           const ext = path.extname(fullPath).toLowerCase();
           if (VIDEO_EXTENSIONS.includes(ext)) {
             const parsed = parseFileName(path.basename(fullPath), parseOptions);
+            // Use the containing folders for anything the filename doesn't say
+            applyFolderFallbacks(parsed, fullPath, basePath, parseOptions);
             // Path relative to base for use in batch-rename API
             const pathFromBase = "/" + path.relative(basePath, fullPath).replace(/\\/g, "/");
             files.push({

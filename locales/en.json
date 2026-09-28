@@ -66,12 +66,20 @@
     "useFFprobe": "Use FFprobe",
     "customTemplate": "Custom template",
     "namingTemplate": "Naming template",
+    "defaultDestination": "Default destination",
+    "defaultDestinationDescription": "Pre-selected when identifying, instead of the media root",
+    "excludePatterns": "Ignored Files and Folders",
+    "excludePatternsDescription": "Names skipped while scanning (e.g. sample). Use * or ? for wildcards (e.g. *.nfo)",
+    "hideExcludedInBrowser": "Hide ignored items in the file browser",
+    "hideExcludedInBrowserDescription": "When off they stay visible in the panes, so they can still be inspected or deleted",
+    "mediaRoot": "(Media Root)",
     "placeholder": {
       "anime": "e.g. Anime",
       "documentaries": "e.g. Documentaries",
       "quality": "e.g. 1080p",
       "codec": "e.g. x265",
-      "extraTag": "e.g. 10bit"
+      "extraTag": "e.g. 10bit",
+      "excludePattern": "e.g. sample"
     },
     "deleteEmptyFolders": "Delete empty source folders after move",
     "deleteEmptyFoldersDescription": "Automatically remove empty folders left behind after moving files"

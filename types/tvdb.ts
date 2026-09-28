@@ -93,6 +93,7 @@ export interface ParsedFileName {
   originalName: string;
   cleanName: string; // Show/movie name extracted
   season?: number;
+  seasonAssumed?: boolean; // Season 1 was assumed (filename only had an episode number)
   episode?: number;
   year?: number;
   quality?: string;

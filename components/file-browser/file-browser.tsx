@@ -737,6 +737,8 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         moviesMetadataProvider={config.moviesMetadataProvider ?? config.metadataProvider}
         seriesBaseFolders={config.seriesBaseFolders}
         moviesBaseFolders={config.moviesBaseFolders}
+        defaultSeriesBaseFolder={config.defaultSeriesBaseFolder}
+        defaultMoviesBaseFolder={config.defaultMoviesBaseFolder}
         seriesNamingTemplate={config.seriesNamingTemplate}
         movieNamingTemplate={config.movieNamingTemplate}
         qualityValues={config.qualityValues}
@@ -756,6 +758,7 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         language={config.language}
         metadataProvider={config.moviesMetadataProvider ?? config.metadataProvider}
         moviesBaseFolders={config.moviesBaseFolders}
+        defaultMoviesBaseFolder={config.defaultMoviesBaseFolder}
         movieNamingTemplate={config.movieNamingTemplate}
         qualityValues={config.qualityValues}
         codecValues={config.codecValues}
@@ -787,6 +790,14 @@ export function FileBrowser({ settingsOpen, onSettingsOpenChange }: FileBrowserP
         onExtraTagValuesChange={(values) => updateConfig({ extraTagValues: values })}
         deleteEmptyFoldersAfterMove={config.deleteEmptyFoldersAfterMove}
         onDeleteEmptyFoldersAfterMoveChange={(value) => updateConfig({ deleteEmptyFoldersAfterMove: value })}
+        defaultSeriesBaseFolder={config.defaultSeriesBaseFolder}
+        onDefaultSeriesBaseFolderChange={(folder) => updateConfig({ defaultSeriesBaseFolder: folder })}
+        defaultMoviesBaseFolder={config.defaultMoviesBaseFolder}
+        onDefaultMoviesBaseFolderChange={(folder) => updateConfig({ defaultMoviesBaseFolder: folder })}
+        excludePatterns={config.excludePatterns}
+        onExcludePatternsChange={(patterns) => updateConfig({ excludePatterns: patterns })}
+        hideExcludedInBrowser={config.hideExcludedInBrowser}
+        onHideExcludedInBrowserChange={(value) => updateConfig({ hideExcludedInBrowser: value })}
         isLoading={configLoading}
       />
     </div>

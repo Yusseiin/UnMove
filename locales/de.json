@@ -66,12 +66,20 @@
     "useFFprobe": "FFprobe verwenden",
     "customTemplate": "Benutzerdefinierte Vorlage",
     "namingTemplate": "Benennungsvorlage",
+    "defaultDestination": "Standardziel",
+    "defaultDestinationDescription": "Beim Identifizieren vorausgewählt, statt des Medien-Stammverzeichnisses",
+    "excludePatterns": "Ignorierte Dateien und Ordner",
+    "excludePatternsDescription": "Namen, die beim Scannen übersprungen werden (z. B. sample). * oder ? als Platzhalter (z. B. *.nfo)",
+    "hideExcludedInBrowser": "Ignorierte Einträge im Dateibrowser ausblenden",
+    "hideExcludedInBrowserDescription": "Ausgeschaltet bleiben sie in den Bereichen sichtbar und können weiterhin geprüft oder gelöscht werden",
+    "mediaRoot": "(Medien-Stammverzeichnis)",
     "placeholder": {
       "anime": "z.B. Anime",
       "documentaries": "z.B. Dokumentationen",
       "quality": "z.B. 1080p",
       "codec": "z.B. x265",
-      "extraTag": "z.B. 10bit"
+      "extraTag": "z.B. 10bit",
+      "excludePattern": "z. B. sample"
     },
     "deleteEmptyFolders": "Leere Quellordner nach dem Verschieben löschen",
     "deleteEmptyFoldersDescription": "Leere Ordner nach dem Verschieben von Dateien automatisch entfernen"
